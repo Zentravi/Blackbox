@@ -247,7 +247,7 @@ export default function RecoveryPage() {
           {scenario.actions.map((action) => {
             const used = state.actions.filter((a) => a.actionId === action.id);
             return (
-              <Card key={action.id} className="flex flex-col">
+              <Card key={action.id} data-testid="action-card" className="flex flex-col">
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-[13px] leading-snug">{action.name}</CardTitle>

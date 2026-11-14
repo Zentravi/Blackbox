@@ -39,6 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { downloadTextFile } from "@/lib/export";
+import { formatDateTime } from "@/lib/format";
 import { APP_VERSION } from "@/lib/constants";
 
 function Row({
@@ -67,7 +68,8 @@ function Row({
 
 export default function SettingsPage() {
   const { settings, update, reset } = useSettings();
-  const { state, loadScenario, reset: resetScenario } = useSimulation();
+  const { state, loadScenario, reset: resetScenario, persistence } = useSimulation();
+  const [confirmDbClear, setConfirmDbClear] = useState(false);
   const [resetAllOpen, setResetAllOpen] = useState(false);
 
   const saved = (label: string) => toast.success(`${label} saved`, { id: "settings" });
@@ -361,6 +363,129 @@ export default function SettingsPage() {
                 <Sparkles className="h-3.5 w-3.5" /> Re-seed current scenario
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Persistence */}
+        <Card data-testid="persistence-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-4 w-4 text-cyan" /> Persistence
+            </CardTitle>
+            <CardDescription>
+              Reload-safe simulation state — localStorage snapshot plus optional PostgreSQL
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+              <span className="text-muted-foreground">Local snapshot (localStorage)</span>
+              <span className="font-mono text-foreground" data-testid="local-saved-at">
+                {persistence.localSavedAt
+                  ? `saved ${formatDateTime(persistence.localSavedAt, settings.timezone)}`
+                  : "not saved yet"}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+              <span className="text-muted-foreground">PostgreSQL (via /api/persistence)</span>
+              <span className="flex items-center gap-1.5 font-mono" data-testid="db-status">
+                {persistence.remote === null ? (
+                  <span className="text-muted-foreground">checking…</span>
+                ) : !persistence.remote.configured ? (
+                  <span className="text-muted-foreground">not configured (set DATABASE_URL)</span>
+                ) : persistence.remote.connected ? (
+                  <span className="text-success">
+                    connected
+                    {persistence.remote.tick !== undefined
+                      ? ` · tick ${persistence.remote.tick}`
+                      : ""}
+                    {persistence.remote.updatedAt
+                      ? ` · ${formatDateTime(Date.parse(persistence.remote.updatedAt), settings.timezone)}`
+                      : ""}
+                  </span>
+                ) : (
+                  <span className="text-destructive" title={persistence.remote.error}>
+                    unreachable
+                  </span>
+                )}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  const ok = await persistence.saveNow();
+                  if (ok) {
+                    toast.success("Saved to database", {
+                      description: `Snapshot + telemetry synced at tick ${state.tick}.`,
+                    });
+                  } else if (persistence.remote?.configured) {
+                    toast.error("Database save failed", {
+                      description: persistence.remote.error ?? "Unknown error",
+                    });
+                  } else {
+                    toast.info("Saved locally only", {
+                      description: "PostgreSQL is not configured — set DATABASE_URL to enable it.",
+                    });
+                  }
+                }}
+                disabled={persistence.syncing}
+              >
+                <Save className="h-3.5 w-3.5" />
+                {persistence.syncing ? "Saving…" : "Save now"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  const ok = await persistence.restoreFromDb();
+                  if (ok) toast.success("State restored from database");
+                  else
+                    toast.error("Nothing to restore", {
+                      description: "No valid snapshot found in the database.",
+                    });
+                }}
+              >
+                <Download className="h-3.5 w-3.5" /> Restore from database
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  persistence.clearLocal();
+                  toast.info("Local snapshot cleared", {
+                    description: "The next reload starts from a fresh deterministic seed.",
+                  });
+                }}
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Clear local snapshot
+              </Button>
+              {persistence.remote?.configured ? (
+                <Button
+                  size="sm"
+                  variant={confirmDbClear ? "destructive" : "outline"}
+                  onClick={async () => {
+                    if (!confirmDbClear) {
+                      setConfirmDbClear(true);
+                      window.setTimeout(() => setConfirmDbClear(false), 4000);
+                      return;
+                    }
+                    setConfirmDbClear(false);
+                    const ok = await persistence.clearDb();
+                    if (ok) toast.success("Database snapshot cleared");
+                    else toast.error("Could not clear the database");
+                  }}
+                >
+                  {confirmDbClear ? "Click again to confirm" : "Clear database snapshot"}
+                </Button>
+              ) : null}
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              The simulation autosaves locally every few seconds and to PostgreSQL every ~30 s
+              (plus immediately after recovery actions, incident updates and scenario switches).
+              On reload the local snapshot wins; without one the database snapshot is restored.
+            </p>
           </CardContent>
         </Card>
 

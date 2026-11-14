@@ -254,6 +254,9 @@ function InvestigationContent() {
               return (
                 <Card
                   key={h.id}
+                  data-testid="hypothesis-card"
+                  data-rank={i}
+                  data-hypothesis={h.id}
                   className={cn(
                     "flex flex-col",
                     isChosen && "border-primary/60",

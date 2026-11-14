@@ -1,48 +1,46 @@
-// BLACKBOX — production data model (PostgreSQL).
+// BLACKBOX — PostgreSQL data model (Prisma 7, Rust-free client).
 //
-// The application runtime uses a deterministic in-memory simulation store so
-// it can run with zero infrastructure. This schema documents the PostgreSQL
-// target and is used by the optional persistence workflow:
+// Runtime usage:
+//   - `scripts/prisma.mjs generate`  → generates the client into src/generated
+//   - `scripts/migrate.mjs`          → applies prisma/migrations via node-postgres
+//   - API routes in src/app/api/persistence use PrismaClient + @prisma/adapter-pg
 //
-//   1. Set DATABASE_URL in .env
-//   2. npx prisma generate && npx prisma migrate deploy
-//   3. Swap the in-memory repository for the Prisma implementation of
-//      src/data/repository.ts interfaces (see docs/database.md)
-//
-// Note: `prisma`/`@prisma/client` are intentionally not runtime dependencies
-// in this environment — engine binaries cannot be fetched from this sandbox
-// (binaries.prisma.sh is unreachable). The schema itself is valid and ready.
+// The Prisma CLI would normally download `schema-engine` from
+// binaries.prisma.sh at startup; scripts/prisma.mjs points
+// PRISMA_SCHEMA_ENGINE_BINARY at a harmless stub so generate/format work
+// offline (they never invoke the engine). Migrations are applied by
+// scripts/migrate.mjs, so the engine is not required anywhere.
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
-enum health_status {
+enum HealthStatus {
   HEALTHY
   DEGRADED
   CRITICAL
   DOWN
 }
 
-enum severity {
+enum Severity {
   SEV1
   SEV2
   SEV3
 }
 
-enum incident_status {
+enum IncidentStatus {
   TRIGGERED
   ACKNOWLEDGED
   INVESTIGATING
   RESOLVED
 }
 
-enum log_level {
+enum LogLevel {
   DEBUG
   INFO
   WARN
@@ -222,6 +220,8 @@ model RecoveryAction {
   appliedAt  DateTime @map("applied_at")
   notes      String[]
   rolledBack Boolean  @default(false)
+  rolledBackTick Int? @map("rolled_back_tick")
+  faultBefore Json    @map("fault_before")
   kpiBefore  Json     @map("kpi_before")
   kpiAfter   Json     @map("kpi_after")
 
@@ -231,4 +231,14 @@ model RecoveryAction {
 model WorkspaceSetting {
   key   String @id
   value Json
+}
+
+/// Full simulation snapshot for fast, exact restore (single row per workspace).
+model SimulationState {
+  id         String   @id
+  tick       Int
+  scenarioId String   @map("scenario_id")
+  health     Float
+  payload    Json
+  updatedAt  DateTime @updatedAt @map("updated_at")
 }

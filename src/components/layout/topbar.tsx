@@ -167,8 +167,7 @@ function ScenarioSwitcher() {
           {SCENARIO_LIST.map((s) => (
             <DropdownMenuItem
               key={s.id}
-              onSelect={(e) => {
-                e.preventDefault();
+              onSelect={() => {
                 if (s.id !== state.scenarioId) setPending(s.id);
               }}
               className={cn("flex flex-col items-start gap-0.5 py-2", s.id === state.scenarioId && "bg-accent/70")}
