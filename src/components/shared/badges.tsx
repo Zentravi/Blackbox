@@ -8,7 +8,7 @@ export function StatusDot({ status, pulse = false }: { status: HealthStatus; pul
     <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
       <span
         className={cn(
-          "inline-flex h-2.5 w-2.5 rounded-full",
+          "inline-flex h-2.5 w-2.5 rounded-full transition-colors duration-200",
           pulse && status !== "healthy" && "animate-pulse",
         )}
         style={{ backgroundColor: STATUS_COLORS[status] }}
@@ -28,7 +28,7 @@ export function HealthBadge({ status, className }: { status: HealthStatus; class
           : "destructive";
   return (
     <Badge variant={variant} className={cn("uppercase tracking-wide", className)}>
-      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] }} />
+      <span className="h-1.5 w-1.5 rounded-full transition-colors duration-200" style={{ backgroundColor: STATUS_COLORS[status] }} />
       {STATUS_LABELS[status]}
     </Badge>
   );

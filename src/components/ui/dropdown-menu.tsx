@@ -2,28 +2,86 @@
 
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronRight, Circle } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { EASE_IN, EASE_OUT, MOTION } from "@/lib/motion";
 
-export const DropdownMenu = DropdownMenuPrimitive.Root;
+/**
+ * Open-state bridge (same pattern as Dialog): lets DropdownMenuContent gate an
+ * AnimatePresence tree so menus get a real fade-out instead of vanishing.
+ */
+const DropdownOpenContext = React.createContext<boolean>(false);
+
+export function DropdownMenu({
+  open: openProp,
+  onOpenChange,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : uncontrolledOpen;
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!isControlled) setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [isControlled, onOpenChange],
+  );
+
+  return (
+    <DropdownOpenContext.Provider value={open}>
+      <DropdownMenuPrimitive.Root open={open} onOpenChange={handleOpenChange} {...props} />
+    </DropdownOpenContext.Provider>
+  );
+}
+
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 export const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 
 export function DropdownMenuContent({
   className,
   sideOffset = 6,
+  children,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>) {
+  const open = React.useContext(DropdownOpenContext);
   return (
-    <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.Content
-        sideOffset={sideOffset}
-        className={cn(
-          "z-50 min-w-[10rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-xl",
-          className,
-        )}
-        {...props}
-      />
+    <DropdownMenuPrimitive.Portal forceMount>
+      <AnimatePresence>
+        {open ? (
+          /* The Radix popper positions the content element with its own
+             transform (translate3d) — so motion only animates opacity here;
+             the scale/rise happens on an inner wrapper that Radix does not
+             touch. */
+          <DropdownMenuPrimitive.Content
+            key="menu-content"
+            forceMount
+            asChild
+            sideOffset={sideOffset}
+            {...props}
+          >
+            <motion.div
+              className={cn(
+                "z-50 min-w-[10rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-xl",
+                className,
+              )}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: { duration: MOTION.instant, ease: EASE_OUT } }}
+              exit={{ opacity: 0, transition: { duration: 0.1, ease: EASE_IN } }}
+            >
+              <motion.div
+                initial={{ y: -4, scale: 0.985 }}
+                animate={{ y: 0, scale: 1, transition: { duration: MOTION.fast, ease: EASE_OUT } }}
+                exit={{ y: -3, scale: 0.99, transition: { duration: 0.1, ease: EASE_IN } }}
+              >
+                {children}
+              </motion.div>
+            </motion.div>
+          </DropdownMenuPrimitive.Content>
+        ) : null}
+      </AnimatePresence>
     </DropdownMenuPrimitive.Portal>
   );
 }

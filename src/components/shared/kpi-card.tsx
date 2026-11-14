@@ -1,6 +1,10 @@
+"use client";
+
 import * as React from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { Card, CardContent } from "@/components/ui/card";
+import { EASE_STANDARD, MOTION } from "@/lib/motion";
 
 interface KpiCardProps {
   label: string;
@@ -13,7 +17,15 @@ interface KpiCardProps {
   className?: string;
 }
 
+/**
+ * Animated KPI card: primitive values swap through an AnimatePresence
+ * (popLayout) so metric updates read as motion without ever shifting the
+ * grid — non-primitive values render statically.
+ */
 export function KpiCard({ label, value, sub, icon, trendTone, children, className }: KpiCardProps) {
+  const primitiveValue =
+    typeof value === "string" || typeof value === "number" ? String(value) : null;
+
   return (
     <Card className={cn("relative overflow-hidden", className)}>
       <CardContent className="p-4">
@@ -23,7 +35,22 @@ export function KpiCard({ label, value, sub, icon, trendTone, children, classNam
               {label}
             </p>
             <div className="kpi-value mt-1.5 flex items-baseline gap-2">
-              <span className="text-2xl font-semibold text-foreground">{value}</span>
+              {primitiveValue === null ? (
+                <span className="text-2xl font-semibold text-foreground">{value}</span>
+              ) : (
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={primitiveValue}
+                    className="text-2xl font-semibold text-foreground"
+                    initial={{ opacity: 0, y: 9 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -9 }}
+                    transition={{ duration: MOTION.instant, ease: EASE_STANDARD }}
+                  >
+                    {value}
+                  </motion.span>
+                </AnimatePresence>
+              )}
               {sub ? (
                 <span
                   className={cn(

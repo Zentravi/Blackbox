@@ -42,7 +42,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatClock, formatMs, formatPct, formatTickDuration } from "@/lib/format";
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { STATUS_COLORS } from "@/lib/constants";
 
 const ACTIVITY_STYLE: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string }> = {
@@ -112,14 +114,22 @@ export default function DashboardPage() {
       />
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
-        <Card className="col-span-2 xl:col-span-1">
-          <CardContent className="flex items-center justify-center p-4">
-            <HealthGauge value={state.health} />
-          </CardContent>
-        </Card>
+      <motion.div
+        className="grid grid-cols-2 gap-3 xl:grid-cols-5"
+        variants={staggerContainer}
+        initial="hidden"
+        animate="show"
+      >
+        <motion.div variants={staggerItem} className="col-span-2 xl:col-span-1">
+          <Card>
+            <CardContent className="flex items-center justify-center p-4">
+              <HealthGauge value={state.health} />
+            </CardContent>
+          </Card>
+        </motion.div>
 
-        <KpiCard
+        <motion.div variants={staggerItem}>
+<KpiCard
           label="Active incidents"
           value={open.length}
           sub={
@@ -130,7 +140,9 @@ export default function DashboardPage() {
           trendTone={open.length > 0 ? "bad" : "good"}
           icon={<Siren className="h-4 w-4" />}
         />
-        <KpiCard
+        </motion.div>
+        <motion.div variants={staggerItem}>
+<KpiCard
           label="Error rate"
           value={formatPct(err, 2)}
           sub={
@@ -145,7 +157,9 @@ export default function DashboardPage() {
         >
           <Sparkline data={chartData.map((d) => d.errPct)} color="#ef4444" height={28} />
         </KpiCard>
-        <KpiCard
+        </motion.div>
+        <motion.div variants={staggerItem}>
+<KpiCard
           label="Latency p95"
           value={formatMs(p95)}
           sub={`${p95 - prevP95 >= 0 ? "+" : ""}${Math.round(p95 - prevP95)}ms`}
@@ -154,14 +168,17 @@ export default function DashboardPage() {
         >
           <Sparkline data={chartData.map((d) => d.p95)} color="#22d3ee" height={28} />
         </KpiCard>
-        <KpiCard
+        </motion.div>
+        <motion.div variants={staggerItem}>
+<KpiCard
           label="Availability"
           value={formatPct(availability, 2)}
           sub={`${counts.down} down · ${counts.degraded + counts.critical} degraded`}
           trendTone={counts.down > 0 ? "bad" : "good"}
           icon={<Zap className="h-4 w-4" />}
         />
-      </div>
+        </motion.div>
+      </motion.div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Left column */}

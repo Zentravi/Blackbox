@@ -19,6 +19,7 @@ import "@xyflow/react/dist/style.css";
 import type { HealthStatus, ScenarioDefinition, ServiceDef } from "@/simulation/types";
 import { STATUS_COLORS } from "@/lib/constants";
 import { formatMs, formatPct } from "@/lib/format";
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
 
 export interface ServiceNodeData extends Record<string, unknown> {
@@ -39,7 +40,10 @@ function statusBorder(status: HealthStatus): string {
 const ServiceNode = memo(function ServiceNode({ data, selected }: NodeProps<AppNode>) {
   const { def, status, cpu, p95, err, affected } = data;
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
         "w-[190px] rounded-lg border bg-panel px-3 py-2.5 shadow-lg transition-all",
         selected ? "ring-2 ring-primary" : "",
@@ -79,7 +83,7 @@ const ServiceNode = memo(function ServiceNode({ data, selected }: NodeProps<AppN
         <span className={cn(err > 0.05 && "text-destructive")}>{formatPct(err, 1)}</span>
       </div>
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-0 !bg-[#3d7dff]" />
-    </div>
+    </motion.div>
   );
 });
 

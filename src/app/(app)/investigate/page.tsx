@@ -38,7 +38,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 
 const EVIDENCE_ICON: Record<EvidenceKind, React.ComponentType<{ className?: string }>> = {
   metric: Gauge,
@@ -245,15 +247,20 @@ function InvestigationContent() {
           </Card>
 
           {/* Hypotheses */}
-          <div className="grid gap-3 lg:grid-cols-2">
+          <motion.div
+            className="grid gap-3 lg:grid-cols-2"
+            variants={staggerContainer}
+            initial="hidden"
+            animate="show"
+          >
             {results.map((h, i) => {
               const tone = confidenceTone(h.confidence);
               const isChosen = selectedIncident?.rootCause?.hypothesisId === h.id;
               const revealAnswer = selectedIncident?.status === "resolved";
               const isOpen = expanded === h.id;
               return (
+                <motion.div key={h.id} variants={staggerItem}>
                 <Card
-                  key={h.id}
                   data-testid="hypothesis-card"
                   data-rank={i}
                   data-hypothesis={h.id}
@@ -352,9 +359,21 @@ function InvestigationContent() {
                       Why is this hypothesis relevant?
                       <ChevronDown className={cn("h-3 w-3 transition-transform", isOpen && "rotate-180")} />
                     </button>
-                    {isOpen ? (
-                      <p className="text-[11.5px] leading-relaxed text-muted-foreground">{h.whyRelevant}</p>
-                    ) : null}
+                    <AnimatePresence initial={false}>
+                      {isOpen ? (
+                        <motion.p
+                          key="why-relevant"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                          style={{ overflow: "hidden" }}
+                          className="text-[11.5px] leading-relaxed text-muted-foreground"
+                        >
+                          {h.whyRelevant}
+                        </motion.p>
+                      ) : null}
+                    </AnimatePresence>
 
                     {selectedIncident ? (
                       <div className="flex items-center justify-between gap-2 border-t border-border pt-2.5">
@@ -391,9 +410,10 @@ function InvestigationContent() {
                     )}
                   </CardContent>
                 </Card>
+                </motion.div>
               );
             })}
-          </div>
+          </motion.div>
 
           {selectedIncident?.rootCause && selectedIncident.status !== "resolved" ? (
             <Card className="border-primary/50">

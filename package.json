@@ -2,7 +2,7 @@
   "name": "blackbox",
   "version": "1.0.0",
   "private": true,
-  "description": "BLACKBOX \u2014 production incident investigation & recovery simulator",
+  "description": "BLACKBOX — production incident investigation & recovery simulator",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -39,6 +39,7 @@
     "clsx": "^2.1.1",
     "geist": "^1.9.2",
     "lucide-react": "^1.72.0",
+    "motion": "^14.14.0",
     "next": "16.4.6",
     "pg": "^8.23.1",
     "prisma": "^7.10.1",

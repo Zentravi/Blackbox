@@ -12,6 +12,7 @@ import {
   Check,
 } from "lucide-react";
 import type { TimelineEvent, TimelineEventKind } from "@/simulation/types";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { useSettings } from "@/state/settings-context";
 import { formatClock } from "@/lib/format";
@@ -41,12 +42,20 @@ export function IncidentTimeline({ events, className }: TimelineProps) {
   const { settings } = useSettings();
   return (
     <ol className={cn("relative space-y-0", className)}>
-      {events.map((e, i) => {
+      <AnimatePresence initial={false}>
+        {events.map((e, i) => {
         const style = KIND_STYLE[e.kind] ?? KIND_STYLE.note;
         const Icon = style.icon;
         const last = i === events.length - 1;
         return (
-          <li key={e.id} className="relative flex gap-3 pb-4 last:pb-0">
+          <motion.li
+            key={e.id}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="relative flex gap-3 pb-4 last:pb-0"
+          >
             {!last ? <span className="absolute left-[11px] top-6 h-full w-px bg-border" /> : null}
             <span
               className="relative z-10 flex h-[23px] w-[23px] shrink-0 items-center justify-center rounded-full border"
@@ -78,9 +87,10 @@ export function IncidentTimeline({ events, className }: TimelineProps) {
               </div>
               <p className="mt-1 break-words text-xs leading-relaxed text-foreground/90">{e.message}</p>
             </div>
-          </li>
+          </motion.li>
         );
-      })}
+        })}
+      </AnimatePresence>
     </ol>
   );
 }

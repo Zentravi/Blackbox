@@ -144,3 +144,33 @@ body {
 .recharts-tooltip-wrapper {
   outline: none;
 }
+
+/* ---------------------------------------------------------------------------
+ * Motion & accessibility
+ * JS animations (motion/react) honour prefers-reduced-motion via
+ * <MotionConfig reducedMotion="user"> in the root layout; the block below
+ * does the same for CSS-driven animation (transitions, pulses, spinners).
+ * ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Dependency graph: smooth highlight/dim transitions (never transforms —
+   React Flow owns the node wrapper transform for pan/zoom). */
+.react-flow__edge,
+.react-flow__edge-path {
+  transition: opacity 200ms ease, stroke 200ms ease;
+}
+.react-flow__controls-button {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.react-flow__node {
+  transition: opacity 200ms ease;
+}

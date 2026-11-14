@@ -15,6 +15,7 @@ import {
 import { NAV_ITEMS } from "@/lib/constants";
 import { formatClock } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { motion } from "motion/react";
 import { useSimulation } from "@/state/simulation-context";
 import { useSettings } from "@/state/settings-context";
 import { getScenario, SCENARIO_LIST } from "@/simulation/scenarios";
@@ -233,10 +234,20 @@ export function Topbar() {
       </Sheet>
 
       <div className="flex min-w-0 items-center gap-2.5">
-        <h2 className="truncate text-sm font-semibold text-foreground">{pageTitle(pathname)}</h2>
+        <h2 className="truncate text-sm font-semibold text-foreground">
+          <motion.span
+            key={pathname}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="inline-block"
+          >
+            {pageTitle(pathname)}
+          </motion.span>
+        </h2>
         <span
           className={cn(
-            "hidden items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider sm:inline-flex",
+            "hidden items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider sm:inline-flex transition-colors duration-200",
             running
               ? "border-success/40 bg-success/10 text-success"
               : "border-warning/40 bg-warning/10 text-warning",

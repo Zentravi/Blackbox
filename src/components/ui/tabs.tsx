@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { EASE_OUT, MOTION } from "@/lib/motion";
 
 export const Tabs = TabsPrimitive.Root;
 
@@ -38,12 +40,21 @@ export function TabsTrigger({
 
 export function TabsContent({
   className,
+  children,
   ...props
 }: React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>) {
   return (
-    <TabsPrimitive.Content
-      className={cn("mt-3 focus-visible:outline-none", className)}
-      {...props}
-    />
+    <TabsPrimitive.Content className="mt-3 focus-visible:outline-none" {...props}>
+      {/* Layout classes (space-y etc.) live on the animated wrapper so child
+          spacing keeps working across the extra element. */}
+      <motion.div
+        className={className}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: MOTION.fast, ease: EASE_OUT }}
+      >
+        {children}
+      </motion.div>
+    </TabsPrimitive.Content>
   );
 }

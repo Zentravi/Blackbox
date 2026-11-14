@@ -1,7 +1,9 @@
 "use client";
 
+import { useId } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "motion/react";
 import { APP_NAME, APP_VERSION, NAV_ITEMS } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import { NAV_ICONS } from "./nav-icons";
@@ -9,6 +11,9 @@ import { useSimulation } from "@/state/simulation-context";
 
 function NavGroups({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  // Instance-scoped so the desktop sidebar and mobile sheet copies never
+  // register the same layoutId simultaneously.
+  const indicatorId = useId();
   const groups = [...new Set(NAV_ITEMS.map((i) => i.group))];
 
   return (
@@ -32,21 +37,31 @@ function NavGroups({ onNavigate }: { onNavigate?: () => void }) {
                       onClick={onNavigate}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
+                        "group relative flex items-center rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
                         active
-                          ? "bg-primary/12 text-foreground shadow-[inset_2px_0_0_0_var(--primary)]"
+                          ? "text-foreground"
                           : "text-muted-foreground hover:bg-white/4 hover:text-foreground",
                       )}
                     >
-                      {Icon ? (
-                        <Icon
-                          className={cn(
-                            "h-4 w-4 shrink-0 transition-colors",
-                            active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
-                          )}
+                      {active ? (
+                        <motion.span
+                          layoutId={`sidebar-active-${indicatorId}`}
+                          aria-hidden
+                          className="absolute inset-0 rounded-md bg-primary/12 shadow-[inset_2px_0_0_0_var(--primary)]"
+                          transition={{ type: "spring", stiffness: 420, damping: 36 }}
                         />
                       ) : null}
-                      <span className="truncate">{item.label}</span>
+                      <span className="relative flex min-w-0 items-center gap-2.5">
+                        {Icon ? (
+                          <Icon
+                            className={cn(
+                              "h-4 w-4 shrink-0 transition-colors",
+                              active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
+                            )}
+                          />
+                        ) : null}
+                        <span className="truncate">{item.label}</span>
+                      </span>
                     </Link>
                   </li>
                 );

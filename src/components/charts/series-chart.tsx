@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import { useMounted } from "@/lib/hooks";
 import { formatClock } from "@/lib/format";
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -102,7 +103,13 @@ export function SeriesChart({
   const Chart = hasArea ? AreaChart : LineChart;
 
   return (
-    <div className={cn("w-full", className)} style={{ height }}>
+    <motion.div
+      className={cn("w-full", className)}
+      style={{ height }}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+    >
       <ResponsiveContainer width="100%" height="100%">
         <Chart data={data} margin={{ top: 8, right: hasRight ? 8 : 12, bottom: 0, left: -14 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#17203a" vertical={false} />
@@ -192,7 +199,9 @@ export function SeriesChart({
                   fillOpacity={0.08}
                   dot={false}
                   strokeDasharray={s.dash ? "5 4" : undefined}
-                  isAnimationActive={false}
+                  isAnimationActive
+                  animationDuration={320}
+                  animationEasing="ease-out"
                 />
               );
             }
@@ -208,12 +217,14 @@ export function SeriesChart({
                 dot={false}
                 strokeDasharray={s.dash ? "5 4" : undefined}
                 activeDot={{ r: 3, strokeWidth: 0 }}
-                isAnimationActive={false}
+                isAnimationActive
+                animationDuration={320}
+                animationEasing="ease-out"
               />
             );
           })}
         </Chart>
       </ResponsiveContainer>
-    </div>
+    </motion.div>
   );
 }

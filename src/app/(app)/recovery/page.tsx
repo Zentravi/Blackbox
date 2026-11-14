@@ -34,7 +34,9 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SeriesChart } from "@/components/charts/series-chart";
 import { formatMs, formatPct } from "@/lib/format";
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 
 const CATEGORY_VARIANT: Record<RecoveryActionDef<ScenarioFault>["category"], "success" | "default" | "warning"> = {
   fix: "success",
@@ -181,12 +183,21 @@ export default function RecoveryPage() {
           </CardHeader>
           <CardContent>
             {before && after ? (
-              <div className="space-y-2">
+              <motion.div
+                key={lastActive?.tick ?? "snapshot"}
+                className="space-y-2"
+                variants={staggerContainer}
+                initial="hidden"
+                animate="show"
+              >
                 <KpiRow label="Health score" before={before.health} after={after.health} suffix="%" invert />
                 <KpiRow label="Error rate" before={before.errorRate * 100} after={after.errorRate * 100} suffix="%" invert />
                 <KpiRow label="p95 latency" before={before.latencyP95Ms} after={after.latencyP95Ms} suffix="ms" invert />
                 <KpiRow label="Availability" before={before.availability * 100} after={after.availability * 100} suffix="%" />
-                <div className="flex items-center justify-between rounded-md border border-border bg-panel-2 px-3 py-2 text-xs">
+                <motion.div
+                  variants={staggerItem}
+                  className="flex items-center justify-between rounded-md border border-border bg-panel-2 px-3 py-2 text-xs"
+                >
                   <span className="text-muted-foreground">Down / degraded services</span>
                   <span className="tabular">
                     {before.downServices}/{before.degradedServices} →{" "}
@@ -194,15 +205,15 @@ export default function RecoveryPage() {
                       {after.downServices}/{after.degradedServices}
                     </strong>
                   </span>
-                </div>
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                </motion.div>
+                <motion.p variants={staggerItem} className="text-[11px] leading-relaxed text-muted-foreground">
                   {lastActive?.notes.at(-1)}
-                </p>
-                <p className="text-[10px] text-muted-foreground/70">
+                </motion.p>
+                <motion.p variants={staggerItem} className="text-[10px] text-muted-foreground/70">
                   {state.tick - lastActive!.tick} tick{state.tick - lastActive!.tick === 1 ? "" : "s"} have
                   elapsed since application — the live chart below shows the ongoing effect.
-                </p>
-              </div>
+                </motion.p>
+              </motion.div>
             ) : (
               <EmptyState
                 icon={<Zap className="h-5 w-5" />}
@@ -258,7 +269,15 @@ export default function RecoveryPage() {
                   <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider">
                     <span className={cn(RISK_TONE[action.risk])}>risk: {action.risk}</span>
                     {used.length > 0 ? (
-                      <span className="text-muted-foreground">· applied {used.length}×</span>
+                      <motion.span
+                        key={used.length}
+                        initial={{ opacity: 0, x: -4 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                        className="text-muted-foreground"
+                      >
+                        · applied {used.length}×
+                      </motion.span>
                     ) : null}
                   </div>
                 </CardHeader>
@@ -416,7 +435,10 @@ function KpiRow({
 }) {
   const diff = after - before;
   return (
-    <div className="flex items-center justify-between rounded-md border border-border bg-panel-2 px-3 py-2 text-xs">
+    <motion.div
+      variants={staggerItem}
+      className="flex items-center justify-between rounded-md border border-border bg-panel-2 px-3 py-2 text-xs"
+    >
       <span className="text-muted-foreground">{label}</span>
       <span className="flex items-center gap-2 tabular">
         <span className="text-muted-foreground">{before.toFixed(1)}{suffix}</span>
@@ -424,7 +446,7 @@ function KpiRow({
         <strong className="text-foreground">{after.toFixed(1)}{suffix}</strong>
         <Delta value={diff} suffix={suffix === "%" ? "pp" : suffix} invert={invert} />
       </span>
-    </div>
+    </motion.div>
   );
 }
 

@@ -1,3 +1,6 @@
+"use client";
+
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { Inbox } from "lucide-react";
 
@@ -11,7 +14,10 @@ interface EmptyStateProps {
 
 export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
         "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-6 py-10 text-center",
         className,
@@ -23,6 +29,6 @@ export function EmptyState({ icon, title, description, action, className }: Empt
       <p className="text-sm font-medium text-foreground">{title}</p>
       {description ? <p className="max-w-md text-xs text-muted-foreground">{description}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
-    </div>
+    </motion.div>
   );
 }

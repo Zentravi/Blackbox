@@ -2,10 +2,41 @@
 
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
+import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { EASE_IN, EASE_OUT, MOTION } from "@/lib/motion";
 
-export const Select = SelectPrimitive.Root;
+/**
+ * Open-state bridge (same pattern as Dialog): lets SelectContent animate out
+ * via AnimatePresence instead of unmounting instantly.
+ */
+const SelectOpenContext = React.createContext<boolean>(false);
+
+export function Select({
+  open: openProp,
+  onOpenChange,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root>) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : uncontrolledOpen;
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!isControlled) setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [isControlled, onOpenChange],
+  );
+
+  return (
+    <SelectOpenContext.Provider value={open}>
+      <SelectPrimitive.Root open={open} onOpenChange={handleOpenChange} {...props} />
+    </SelectOpenContext.Provider>
+  );
+}
+
 export const SelectGroup = SelectPrimitive.Group;
 export const SelectValue = SelectPrimitive.Value;
 
@@ -36,25 +67,47 @@ export function SelectContent({
   position = "popper",
   ...props
 }: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>) {
+  const open = React.useContext(SelectOpenContext);
   return (
-    <SelectPrimitive.Portal>
-      <SelectPrimitive.Content
-        position={position}
-        className={cn(
-          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-xl",
-          position === "popper" && "data-[side=bottom]:translate-y-1",
-          className,
-        )}
-        {...props}
-      >
-        <SelectPrimitive.ScrollUpButton className="flex items-center justify-center py-1">
-          <ChevronUp className="h-4 w-4" />
-        </SelectPrimitive.ScrollUpButton>
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
-        <SelectPrimitive.ScrollDownButton className="flex items-center justify-center py-1">
-          <ChevronDown className="h-4 w-4" />
-        </SelectPrimitive.ScrollDownButton>
-      </SelectPrimitive.Content>
+    <SelectPrimitive.Portal forceMount>
+      <AnimatePresence>
+        {open ? (
+          /* Radix popper owns the content transform — motion animates opacity
+             only; extra polish comes from a scale on the inner wrapper. */
+          <SelectPrimitive.Content
+            key="select-content"
+            forceMount
+            asChild
+            position={position}
+            {...props}
+          >
+            <motion.div
+              className={cn(
+                "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-xl",
+                className,
+              )}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: { duration: MOTION.instant, ease: EASE_OUT } }}
+              exit={{ opacity: 0, transition: { duration: 0.1, ease: EASE_IN } }}
+            >
+              <motion.div
+                className="flex flex-col"
+                initial={{ y: -4, scale: 0.985 }}
+                animate={{ y: 0, scale: 1, transition: { duration: MOTION.fast, ease: EASE_OUT } }}
+                exit={{ y: -3, scale: 0.99, transition: { duration: 0.1, ease: EASE_IN } }}
+              >
+                <SelectPrimitive.ScrollUpButton className="flex items-center justify-center py-1">
+                  <ChevronUp className="h-4 w-4" />
+                </SelectPrimitive.ScrollUpButton>
+                <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+                <SelectPrimitive.ScrollDownButton className="flex items-center justify-center py-1">
+                  <ChevronDown className="h-4 w-4" />
+                </SelectPrimitive.ScrollDownButton>
+              </motion.div>
+            </motion.div>
+          </SelectPrimitive.Content>
+        ) : null}
+      </AnimatePresence>
     </SelectPrimitive.Portal>
   );
 }
