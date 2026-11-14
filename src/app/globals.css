@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #070a12;
+  --foreground: #e5ecf8;
+  --panel: #0c1322;
+  --panel-2: #111a30;
+  --card: #0c1322;
+  --card-foreground: #e5ecf8;
+  --popover: #0e1628;
+  --popover-foreground: #e5ecf8;
+  --primary: #3d7dff;
+  --primary-foreground: #f4f7ff;
+  --secondary: #16233f;
+  --secondary-foreground: #c7d5f2;
+  --muted: #131d33;
+  --muted-foreground: #8494b3;
+  --accent: #1b2a4d;
+  --accent-foreground: #dbe7ff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #f97316;
+  --info: #38bdf8;
+  --cyan: #22d3ee;
+  --border: #1c2740;
+  --input: #1c2740;
+  --ring: rgba(61, 125, 255, 0.55);
+  --radius: 0.625rem;
+  --sidebar: #090e1a;
+  --sidebar-border: #141d33;
+  --terminal-bg: #06090f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-cyan: var(--cyan);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-terminal: var(--terminal-bg);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "cv02", "cv03", "cv04";
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(61, 125, 255, 0.35);
+  color: #fff;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #26344f transparent;
+}
+
+@layer utilities {
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  .panel-subtle {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+
+  .kpi-value {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 0 1px rgba(61, 125, 255, 0.35), 0 0 24px -8px rgba(61, 125, 255, 0.45);
+  }
+}
+
+/* Compact density mode (Settings → Workspace) */
+[data-density="compact"] .density-row {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+
+/* Recharts tuning for the dark theme */
+.recharts-cartesian-axis-tick text {
+  fill: #6b7c9e;
+  font-size: 11px;
+}
+
+.recharts-cartesian-grid line {
+  stroke: #17203a;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}
