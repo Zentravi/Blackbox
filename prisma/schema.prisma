@@ -1,0 +1,234 @@
+// BLACKBOX — production data model (PostgreSQL).
+//
+// The application runtime uses a deterministic in-memory simulation store so
+// it can run with zero infrastructure. This schema documents the PostgreSQL
+// target and is used by the optional persistence workflow:
+//
+//   1. Set DATABASE_URL in .env
+//   2. npx prisma generate && npx prisma migrate deploy
+//   3. Swap the in-memory repository for the Prisma implementation of
+//      src/data/repository.ts interfaces (see docs/database.md)
+//
+// Note: `prisma`/`@prisma/client` are intentionally not runtime dependencies
+// in this environment — engine binaries cannot be fetched from this sandbox
+// (binaries.prisma.sh is unreachable). The schema itself is valid and ready.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum health_status {
+  HEALTHY
+  DEGRADED
+  CRITICAL
+  DOWN
+}
+
+enum severity {
+  SEV1
+  SEV2
+  SEV3
+}
+
+enum incident_status {
+  TRIGGERED
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+}
+
+enum log_level {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  FATAL
+}
+
+model Service {
+  id          String        @id
+  workspaceId String
+  name        String
+  kind        String
+  team        String
+  runtime     String
+  description String
+  tier        Int
+  posX        Float         @map("pos_x")
+  posY        Float         @map("pos_y")
+  baselineCpu    Float      @map("baseline_cpu")
+  baselineMem    Float      @map("baseline_mem")
+  baselineRps    Float      @map("baseline_rps")
+  baselineP95    Float      @map("baseline_p95")
+  baselineErr    Float      @map("baseline_err")
+  slo        Float
+  status     HealthStatus  @default(HEALTHY)
+  createdAt  DateTime      @default(now())
+
+  dependencies     Dependency[] @relation("edge_source")
+  dependents       Dependency[] @relation("edge_target")
+  incidents        IncidentService[]
+  metricSamples    MetricSample[]
+  logs             LogEntry[]
+  spans            Span[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, status])
+}
+
+model Dependency {
+  id         String     @id
+  workspaceId String
+  sourceId   String     @map("source_id")
+  targetId   String     @map("target_id")
+  protocol   String
+  label      String?
+
+  source Service @relation("edge_source", fields: [sourceId], references: [id])
+  target Service @relation("edge_target", fields: [targetId], references: [id])
+
+  @@unique([workspaceId, sourceId, targetId])
+}
+
+model Incident {
+  id           String         @id
+  workspaceId  String
+  scenarioId   String         @map("scenario_id")
+  number       String
+  triggerId    String         @map("trigger_id")
+  title        String
+  description  String
+  severity     Severity
+  status       IncidentStatus @default(TRIGGERED)
+  openedTick   Int            @map("opened_tick")
+  openedAt     DateTime       @map("opened_at")
+  resolvedTick Int?           @map("resolved_tick")
+  resolvedAt   DateTime?      @map("resolved_at")
+  resolution   String?
+  rootCauseHypothesisId String? @map("root_cause_hypothesis_id")
+  rootCauseTitle       String?  @map("root_cause_title")
+  rootCauseConfidence  Float?   @map("root_cause_confidence")
+
+  services  IncidentService[]
+  timeline  TimelineEvent[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status, severity])
+}
+
+model IncidentService {
+  incidentId String @map("incident_id")
+  serviceId  String @map("service_id")
+
+  incident Incident @relation(fields: [incidentId], references: [id])
+  service  Service  @relation(fields: [serviceId], references: [id])
+
+  @@id([incidentId, serviceId])
+}
+
+model TimelineEvent {
+  id         String   @id
+  incidentId String   @map("incident_id")
+  tick       Int
+  ts         DateTime
+  kind       String
+  actor      String
+  message    String
+
+  incident Incident @relation(fields: [incidentId], references: [id])
+
+  @@index([incidentId, tick])
+}
+
+model MetricSample {
+  id           String       @id @default(cuid())
+  serviceId    String       @map("service_id")
+  tick         Int
+  ts           DateTime
+  cpuPct       Float        @map("cpu_pct")
+  memPct       Float        @map("mem_pct")
+  rps          Float
+  latencyP95Ms Float        @map("latency_p95_ms")
+  errorRate    Float        @map("error_rate")
+  saturation   Float
+
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@unique([serviceId, tick])
+  @@index([serviceId, ts])
+}
+
+model LogEntry {
+  id        String   @id
+  tick      Int
+  ts        DateTime
+  level     LogLevel
+  serviceId String   @map("service_id")
+  message   String
+  traceId   String?  @map("trace_id")
+  fields    Json
+
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@index([serviceId, level, ts])
+  @@index([traceId])
+}
+
+model Trace {
+  id        String   @id
+  tick      Int
+  ts        DateTime
+  route     String
+  entryServiceId String @map("entry_service_id")
+  durationMs Float   @map("duration_ms")
+  status    String
+
+  spans Span[]
+
+  @@index([status, ts])
+  @@index([entryServiceId, ts])
+}
+
+model Span {
+  id        String  @id
+  traceId   String  @map("trace_id")
+  serviceId String  @map("service_id")
+  parentId  String? @map("parent_id")
+  name      String
+  kind      String
+  startMs   Float   @map("start_ms")
+  durationMs Float  @map("duration_ms")
+  status    String
+  attributes Json
+
+  trace   Trace    @relation(fields: [traceId], references: [id])
+  service Service  @relation(fields: [serviceId], references: [id])
+
+  @@index([traceId])
+  @@index([serviceId, status])
+}
+
+model RecoveryAction {
+  id         String   @id
+  incidentId String?  @map("incident_id")
+  actionId   String   @map("action_id")
+  name       String
+  tick       Int
+  appliedAt  DateTime @map("applied_at")
+  notes      String[]
+  rolledBack Boolean  @default(false)
+  kpiBefore  Json     @map("kpi_before")
+  kpiAfter   Json     @map("kpi_after")
+
+  @@index([actionId, tick])
+}
+
+model WorkspaceSetting {
+  key   String @id
+  value Json
+}
