@@ -1,84 +1,134 @@
-# BLACKBOX data architecture (PostgreSQL-ready)
+# BLACKBOX data architecture (Prisma + PostgreSQL at runtime)
 
 ## TL;DR
 
-The simulator **runs fully in-memory** by default: a deterministic engine
-produces services, metrics, logs, traces, incidents and recovery effects in
-process, with zero external infrastructure. A PostgreSQL schema (Prisma +
-raw SQL migration) is shipped alongside it so the same domain can be
-persisted in production without redesign.
+BLACKBOX persists the live simulation in **two tiers**:
 
-## Layers
+1. **localStorage** — always available; a schema-validated workspace
+   snapshot is written on a ~4 s throttle, on every important action, and
+   on `pagehide` (best-effort beacon).
+2. **PostgreSQL via Prisma** — used automatically when `DATABASE_URL` is
+   set. The app saves a full snapshot + normalised telemetry every ~30 s
+   (and immediately after scenario switches, recovery actions and incident
+   updates), and restores from the database when no newer local snapshot
+   exists.
+
+Restore priority on load: **local snapshot → database snapshot →
+deterministic warm-up state**. With no `DATABASE_URL` the app runs exactly
+as before — persistence degrades to localStorage only and the Settings page
+reports it.
+
+## Runtime architecture
 
 ```
-src/simulation/       pure deterministic engine (no I/O, no Date.now, no Math.random)
+src/simulation/          pure deterministic engine (seeded PRNG, no I/O)
         │
         ▼
-src/state/            React providers — hold SimState, drive ticks & actions
+src/state/simulation-context.tsx
+        │  SimState in React; tick loop; action dispatch
+        │  save effects (4 s local / 30 s remote throttle, pagehide flush)
+        │  remoteSaveChain — serialises remote saves so an older payload
+        │  can never land after a newer one
+        ▼
+src/lib/persistence-client.ts       fetch wrappers for the API routes
         │
         ▼
-src/data/             data contracts:
-  schema.ts             Zod models mirroring the SQL tables
-  repository.ts         async repository interfaces + InMemoryRepository
-  selectors.ts          derived read-models for the UI
-        │
-        ▼ (optional, production)
-prisma/                schema.prisma + migrations/0001_init.sql (PostgreSQL)
+src/app/api/persistence/{status,save,load,clear}/route.ts
+        │  thin HTTP layer (Zod-validated input, mode: "snapshot" | "full")
+        ▼
+src/server/db.ts                    Prisma singleton + isDatabaseConfigured()
+src/server/persistence.ts           saveState()/loadState()
+        │  normalises telemetry into relational rows (transactional)
+        │  snapshot mode enforces a monotonic-tick guard so a stale
+        │  pagehide beacon can never rewind a newer save
+        ▼
+Prisma 7 (pg adapter) ── prisma/schema.prisma
+                     └── prisma/migrations/20261114090000_init (12 tables)
 ```
 
-## Why not run Prisma at runtime?
+Supporting pieces:
 
-`@prisma/client` downloads native engine binaries from `binaries.prisma.sh`
-during installation. That host is unreachable from this build environment,
-and the product requirement is that the app must run **without external
-infrastructure**. Shipping a runtime Prisma client that cannot install would
-break `npm install` for everyone.
+| Piece | Role |
+| --- | --- |
+| `src/lib/snapshot.ts` | Workspace snapshot schema (Zod), localStorage read/write, trim limits |
+| `src/data/*` | Zod contracts, repository interfaces, selectors (UI reads stay DB-agnostic) |
+| `scripts/db-up.mjs` | Boots an embedded PostgreSQL on `localhost:54329` (dev without a system install) |
+| `scripts/migrate.mjs` | Applies pending SQL migrations using `DATABASE_URL` |
+| `scripts/prisma.mjs` | `prisma generate` wrapper (used by `postinstall`, `prebuild`, `typecheck`) |
+| `GET /api/persistence/status` | `{ configured, connected, tick, scenarioId, updatedAt }` — surfaced in Settings |
 
-Instead we:
+## Save modes
 
-1. keep the engine and UI **database-agnostic** behind repository interfaces
-   (`src/data/repository.ts`) whose method set matches the SQL schema,
-2. validate all persisted shapes with **Zod** (`src/data/schema.ts`),
-3. ship a production-ready **Prisma schema + SQL migration** that can be
-   applied as soon as a real database exists.
+| Mode | Used by | Semantics |
+| --- | --- | --- |
+| `snapshot` | 30 s autosave, pagehide beacon | **Monotonic**: rejected if the stored tick is newer than the incoming one — defeats unload-beacon races |
+| `full` | "Save now", scenario switch, restore round-trips | Authoritative write; may rewind (explicit user/system action) |
 
-## Enabling PostgreSQL later
+Client-side, all remote saves are chained (`remoteSaveChain` in
+`simulation-context.tsx`): the payload is captured when the save is
+requested, execution waits for the previous save to finish. Together with
+the server-side tick guard this makes concurrent writers (autosave vs.
+manual save vs. beacon) safe.
 
-1. Create a database and set `DATABASE_URL` in `.env` (copy `.env.example`).
-2. Install the toolchain (once network access to Prisma's engine CDN is available):
+Telemetry written with a snapshot is pruned to the last
+`TELEMETRY_RETENTION_TICKS` (1200) ticks; `full` mode re-normalises the
+entire state.
 
-   ```bash
-   npm install -D prisma
-   npm install @prisma/client
-   npx prisma generate
-   npx prisma migrate deploy     # applies prisma/migrations/0001_init.sql
-   ```
-
-3. Implement the methods in `src/data/repository.ts` with Prisma calls
-   (all signatures are already `async`), then return that implementation from
-   `getRepository()` when `process.env.DATABASE_URL` is set.
-
-No application code changes are required — the UI only consumes selectors
-over `SimState`, and incident/telemetry writes go through the repository
-contract.
-
-## Schema overview
+## Schema (12 tables)
 
 | Table | Purpose |
 | --- | --- |
-| `services`, `dependencies` | topology + layout coordinates + baselines |
-| `incidents`, `incident_services`, `timeline_events` | incident lifecycle & audit trail |
-| `metric_samples` | per-service time series (unique per tick) |
-| `log_entries` | structured logs (JSONB fields, GIN-friendly) |
-| `traces`, `spans` | distributed traces with parent/child spans |
-| `recovery_actions` | applied experiments incl. before/after KPI JSON |
-| `workspace_settings` | key/value JSON settings |
+| `services` | service catalogue, kind/team, layout coordinates, healthy baselines |
+| `dependencies` | directed edges between services (protocol labels) |
+| `incidents` | incident lifecycle (severity, status, root cause, resolution) |
+| `incident_services` | incident ↔ affected service join table |
+| `timeline_events` | ordered incident audit trail (triggered → … → resolved) |
+| `metric_samples` | per-service metric rows unique per tick (cpu, latency, errors) |
+| `log_entries` | structured logs with JSONB `fields` |
+| `traces` / `spans` | distributed traces with parent/child spans |
+| `recovery_actions` | applied experiments incl. before/after KPI JSON + rollback |
+| `workspace_settings` | key/value JSON settings per workspace |
+| `simulation_state` | the canonical snapshot row (state JSON, tick, scenario, mode) |
+
+Enums: `HealthStatus`, `Severity`, `IncidentStatus`, `LogLevel`.
 
 Retention guidance for production: downsample `metric_samples` beyond 30
-days, partition `log_entries` by day, and archive resolved incidents.
+days, partition `log_entries` by day, archive resolved incidents.
 
-## What *is* persisted today
+## Running with PostgreSQL
 
-- Settings → `localStorage` (schema-validated on read, fall back to defaults).
-- Workspace snapshot export (Settings → Data & reset) → JSON download that
-  validates against `WorkspaceSnapshotSchema`.
+```bash
+npm install
+npm run db:up          # embedded PostgreSQL on :54329 (or point at your own)
+export DATABASE_URL='postgresql://user:pass@host:54329/blackbox?schema=public'
+npm run db:migrate     # applies prisma/migrations/20261114090000_init
+npm run dev            # app now saves to + restores from PostgreSQL
+```
+
+`npm run db:migrate` is idempotent. The Prisma client is generated at
+`postinstall`/`prebuild` time into `src/generated/prisma` (git-ignored).
+
+Without `DATABASE_URL`:
+
+- `GET /api/persistence/status` returns `configured: false`,
+- save/clear routes answer `409 not configured`,
+- the app keeps working from localStorage (Settings shows
+  "Saved locally only").
+
+## What lives where
+
+| Data | Store |
+| --- | --- |
+| Live simulation snapshot (state, tick, scenario) | localStorage **and** PostgreSQL (when configured) |
+| Telemetry rows for DB restore | PostgreSQL (normalised tables above) |
+| UI preferences (theme, density, speed, …) | `localStorage`, Zod-validated on read |
+| Workspace snapshot export (Settings → Data) | JSON download, validated against `WorkspaceSnapshotSchema` |
+| Deterministic warm-up | code (seeded engine) — no storage needed |
+
+## Verification
+
+- `tests/persistence.test.ts` boots a **real embedded PostgreSQL**, runs a
+  save → load round-trip, and asserts the monotonic snapshot guard
+  (stale snapshot rejected, full-save rewind allowed).
+- `tests/e2e/persistence-db.spec.ts` covers the HTTP surface end-to-end:
+  status, round-trip, cross-profile restore, invalid payload rejection.

@@ -57,7 +57,7 @@ embedded PostgreSQL (v17) on port `54329` with data directory `.blackbox-pg/`.
 | `npm start` | Serve the production build |
 | `npm run typecheck` | `prisma generate` + `tsc --noEmit` — strict TypeScript check |
 | `npm run lint` | `eslint .` — flat-config Next.js + React hooks rules |
-| `npm test` | `vitest run` — 8 suites / 65 tests (engine, analysis, recovery, reports, persistence, routes, UI) |
+| `npm test` | `vitest run` — 8 suites / 66 tests (engine, analysis, recovery, reports, persistence, routes, UI) |
 | `npm run test:e2e` | Prepare browser + `playwright test` — 31 end-to-end tests |
 | `npm run db:migrate` | Apply SQL migrations to `$DATABASE_URL` |
 | `npm run db:up` | Start the embedded development PostgreSQL (port 54329) |
@@ -70,7 +70,7 @@ Executed in order, all passing:
 ```
 npm run typecheck   → 0 errors
 npm run lint        → 0 errors, 0 warnings
-npm test            → 8 files, 65 tests passed
+npm test            → 8 files, 66 tests passed
 npm run build       → compiled successfully (16 routes)
 npm run test:e2e    → 31 end-to-end tests passed (7 spec files)
 ```
@@ -215,7 +215,7 @@ Key design decisions:
 npm install          # exit 0 (postinstall: Prisma client generated)
 npm run typecheck    # exit 0 — no errors
 npm run lint         # exit 0 — 0 errors, 0 warnings
-npm test             # exit 0 — Test Files 8 passed (8) | Tests 65 passed (65)
+npm test             # exit 0 — Test Files 8 passed (8) | Tests 66 passed (66)
 npm run build        # exit 0 — 16 routes compiled
 npm run test:e2e     # exit 0 — 31 passed (Playwright, local Chromium + PostgreSQL)
 ```
@@ -237,7 +237,8 @@ Unit/integration coverage (all executed):
   (verified/refuted), Markdown/JSON export, snapshot validation.
 - `tests/persistence.test.ts` — **real PostgreSQL**: boots an embedded server,
   applies migrations idempotently, round-trips save/load/clear through Prisma,
-  asserts normalised row counts.
+  asserts normalised row counts and the monotonic snapshot guard (stale
+  snapshot rejected, full-save rewind allowed).
 - `tests/routes.test.ts` — every sidebar entry has a real `page.tsx`
   (regression guard for the missing-route class of bug), detail + API routes
   exist, navigation has 10 unique entries.
@@ -263,6 +264,44 @@ End-to-end coverage (Playwright, all executed against a production build):
 
 ---
 
+## Motion & animation
+
+The UI uses **one** animation library — [`motion`](https://motion.dev)
+(`motion@14`, imported from `motion/react`); no framer-motion or other
+duplicate animation packages are installed.
+
+Architecture:
+
+- **Tokens** — `src/lib/motion.ts` is the single source of truth for
+  durations (`instant` 120 ms → `slow` 320 ms) and easings, plus shared
+  `Variants` (rise/fade/stagger). Components never hard-code ad-hoc timing.
+- **Global config** — `MotionConfig reducedMotion="user"` in the root
+  layout: Motion skips transform/layout animation for users with
+  `prefers-reduced-motion: reduce`, while opacity fades remain. A matching
+  CSS media query in `globals.css` disables CSS-driven animation
+  (`animate-pulse`, `animate-spin`, transitions) for the same users.
+- **Where animations live**:
+  - route transitions — `AnimatePresence mode="wait"` keyed by pathname in
+    `src/app/(app)/layout.tsx` (providers stay above the animated region);
+  - dialogs/sheets/menus — open-state bridge + portal `forceMount` +
+    `AnimatePresence` in the Radix primitives, so exits actually animate
+    (Radix unmounts instantly by default); menus animate opacity only so the
+    Radix popper transform keeps positioning;
+  - sidebar active state — `layoutId` pill that slides between items;
+  - KPI cards — value swap via `AnimatePresence mode="popLayout"` (no grid
+    reflow); dashboard cards stagger in;
+  - timeline entries, hypothesis cards, recovery before/after rows — stagger
+    entrances; expandable sections animate `height`;
+  - charts — Recharts series morph over ~320 ms (sparklines stay static to
+    avoid animating every point in dense data);
+  - buttons — CSS `hover`/`active` press feedback (zero re-renders).
+- **Constraints respected** — animations never change DOM structure that
+  Playwright selectors rely on (`data-testid`, roles, accessible names stay
+  stable), no layout shift on data updates, reduced-motion honoured, and
+  large datasets (log rows, spans, sparklines) are not per-point animated.
+
+---
+
 ## Implemented vs. future work
 
 ### Implemented now
@@ -277,7 +316,12 @@ End-to-end coverage (Playwright, all executed against a production build):
 - **Persistence across reloads** for simulation state, incidents, metrics,
   logs, traces and recovery history.
 - **Settings** with validated local persistence and database controls.
-- **Tests**: 65 unit/integration tests (incl. a real-PostgreSQL suite) and 31
+- **Motion (animation system)** — the `motion` package only (`motion/react`
+  imports): route/page transitions, dialog/sheet/menu entrances & exits,
+  sidebar active-pill layout animation, KPI value swaps, timeline & stagger
+  reveals, chart/expandable transitions, button press feedback; everything
+  honours `prefers-reduced-motion` (see “Motion & animation” below).
+- **Tests**: 66 unit/integration tests (incl. a real-PostgreSQL suite) and 31
   Playwright end-to-end tests covering navigation, scenario switching,
   investigations, recovery/rollback, reports and persistence.
 - **CI** on every pull request: install → Prisma generate → typecheck → lint →
@@ -299,9 +343,9 @@ End-to-end coverage (Playwright, all executed against a production build):
 ## Tech stack
 
 Next.js 16 (App Router) · React 19 · TypeScript 5.9 (strict) · Tailwind CSS 4 ·
-Radix/shadcn-style components · Lucide icons · Recharts · React Flow · Zod ·
-Prisma 7 + PostgreSQL (pg adapter) · Vitest · Playwright · ESLint (flat config)
-· Geist fonts.
+Radix/shadcn-style components · **Motion for React (`motion`)** · Lucide icons ·
+Recharts · React Flow · Zod · Prisma 7 + PostgreSQL (pg adapter) · Vitest ·
+Playwright · ESLint (flat config) · Geist fonts.
 
 No paid APIs, no external services, no telemetry.
 
