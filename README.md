@@ -1,45 +1,67 @@
 # BLACKBOX — Interactive Incident Investigation & Recovery Simulator
 
-BLACKBOX is a self-contained, end-to-end incident-response simulator. It seeds a
-realistic microservices workspace, runs **three deterministic failure scenarios**
-through a pure simulation engine, and gives you the tooling to investigate,
-experiment with recovery actions, and produce verified incident reports —
-entirely in the browser, with **no backend, no paid APIs, and no external
-infrastructure**.
+BLACKBOX is an end-to-end incident-response simulator. It seeds a realistic
+microservices workspace, runs **three deterministic failure scenarios** through
+a pure simulation engine, and gives you the tooling to investigate, experiment
+with recovery actions, and produce verified incident reports.
 
 ```
-Dashboard → Service Monitor → Incident Center → Dependency Map → Log Explorer
+Dashboard → Dependency Map → Service Monitor → Incident Center → Log Explorer
    → Trace Explorer → Investigation Engine → Recovery Simulator → Reports → Settings
 ```
 
 Every page is wired to the same live simulation state: pause the clock, dig
 through logs, correlate traces, rank root-cause hypotheses, apply recovery
-actions with before/after KPIs, roll them back, and export the report.
+actions with before/after KPIs, roll them back, and export the report. State
+persists across reloads — in `localStorage` always, and in **PostgreSQL via
+Prisma** when `DATABASE_URL` is configured.
 
 ---
 
 ## Quick start
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
+npm install          # also runs `prisma generate` (postinstall)
+npm run dev          # http://localhost:3000
 ```
 
 Then open the app — the workspace is seeded automatically on first launch with
-a mid-incident snapshot for the **DB connection exhaustion** scenario
-(the engine warms up ~112 ticks of history so there is an active incident,
-healthy baselines, logs and traces to explore immediately).
+a mid-incident snapshot for the **DB connection exhaustion** scenario (the
+engine warms up ~112 ticks of history so there is an active incident, healthy
+baselines, logs and traces to explore immediately).
+
+### Optional: PostgreSQL persistence
+
+The app works with zero infrastructure (localStorage-only mode). To enable the
+database tier:
+
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/blackbox?schema=public"
+npm run db:migrate    # applies prisma/migrations via scripts/migrate.mjs
+npm run dev
+```
+
+The Settings page shows the live connection status and offers manual
+**Save now / Restore / Clear** controls. Without `DATABASE_URL` the app simply
+reports `not configured` and keeps using localStorage.
+
+For local development without an external server, `npm run db:up` starts an
+embedded PostgreSQL (v17) on port `54329` with data directory `.blackbox-pg/`.
 
 ### All commands
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Start the dev server (http://localhost:3000) |
-| `npm run build` | Production build |
+| `npm run build` | Production build (runs `prisma generate` first) |
 | `npm start` | Serve the production build |
-| `npm run typecheck` | `tsc --noEmit` — strict TypeScript check |
+| `npm run typecheck` | `prisma generate` + `tsc --noEmit` — strict TypeScript check |
 | `npm run lint` | `eslint .` — flat-config Next.js + React hooks rules |
-| `npm test` | `vitest run` — simulation-engine test suite |
+| `npm test` | `vitest run` — 8 suites / 65 tests (engine, analysis, recovery, reports, persistence, routes, UI) |
+| `npm run test:e2e` | Prepare browser + `playwright test` — 31 end-to-end tests |
+| `npm run db:migrate` | Apply SQL migrations to `$DATABASE_URL` |
+| `npm run db:up` | Start the embedded development PostgreSQL (port 54329) |
+| `npm run prisma:generate` | Regenerate the Prisma client into `src/generated/prisma` |
 
 ### Verified results (this checkout)
 
@@ -48,9 +70,12 @@ Executed in order, all passing:
 ```
 npm run typecheck   → 0 errors
 npm run lint        → 0 errors, 0 warnings
-npm test            → 5 files, 45 tests passed
-npm run build       → compiled successfully (see below)
+npm test            → 8 files, 65 tests passed
+npm run build       → compiled successfully (16 routes)
+npm run test:e2e    → 31 end-to-end tests passed (7 spec files)
 ```
+
+CI re-runs the same gates on every pull request (`.github/workflows/ci.yml`).
 
 ---
 
@@ -65,7 +90,8 @@ npm run build       → compiled successfully (see below)
 All three are **deterministic**: the engine never calls `Date.now()` or
 `Math.random()` — pseudo-randomness comes from a seeded FNV-1a/mulberry32
 stream keyed on `(seed, tick, channel, …)`. The same scenario + seed + action
-sequence always produces bit-identical state (covered by `tests/determinism.test.ts`).
+sequence always produces bit-identical state (covered by
+`tests/determinism.test.ts`).
 
 Each scenario ships 5 root-cause hypotheses (one `actual: true`) with weighted
 evidence slots, 4–6 recovery actions including **red herrings** (e.g. rolling
@@ -85,8 +111,9 @@ with escalation and auto-resolve rules.
   recording with correctness verification, full timeline.
 - **Dependency Map** — React Flow topology (10 nodes / 15 edges), propagation
   highlight, node focus deep-links (`?focus=`), upstream/downstream inspection.
-- **Log Explorer** — search (text/level/service/time), live tail, deep links
-  from evidence, fields inspector, CSV export.
+- **Log Explorer** — search (text/level/service/time), URL-driven filters
+  (`?q=`, `?level=`), live tail, deep links from evidence, fields inspector
+  with trace jump, CSV export.
 - **Trace Explorer** — waterfall view with span tree, error/timeout filters,
   service breakdown, cross-links to logs & the owning incident.
 - **Investigation Engine** — runs correlation analysis over live telemetry and
@@ -102,7 +129,37 @@ with escalation and auto-resolve rules.
   outcome verification and lessons; Markdown/JSON export + print.
 - **Settings** — workspace name/environment, timezone, density, simulation
   defaults; Zod-validated persistence in `localStorage`; scenario switch/reset;
-  workspace snapshot export.
+  workspace snapshot export; **Persistence card** with local/DB status,
+  Save now / Restore / Clear controls.
+
+---
+
+## Persistence
+
+State is persisted in two tiers and restored in priority order
+(local snapshot wins over the database):
+
+1. **localStorage** (always on) — envelope `blackbox.sim-snapshot.v1`,
+   throttled autosave (4 s), flushed on `pagehide`/`visibilitychange`; settings
+   stored under a separate Zod-validated key.
+2. **PostgreSQL** (when `DATABASE_URL` is set) — Prisma 7 client with the
+   `pg` driver adapter:
+   - `POST /api/persistence/save` — `snapshot` (single-row JSON) or `full`
+     (one transaction: snapshot + normalised services, dependencies,
+     incidents, timeline, recovery actions, metric samples, logs, traces and
+     spans; telemetry older than 1 200 ticks is pruned);
+   - `GET /api/persistence/load` / `DELETE /api/persistence/clear` /
+     `GET /api/persistence/status`;
+   - client autosave takes a `full` snapshot every 30 s and immediately after
+     applying/rolling back actions, resolving incidents, switching or resetting
+     scenarios; `sendBeacon` keeps the last tick durable across page loads;
+   - on startup with an empty localStorage the app restores from PostgreSQL
+     (e.g. a fresh browser profile) and shows a *“Restored from database”*
+     toast.
+
+Migrations live in `prisma/migrations/` and are applied with
+`npm run db:migrate` (`scripts/migrate.mjs` — an idempotent runner that works
+even where the Prisma schema engine download is unavailable).
 
 ---
 
@@ -121,13 +178,15 @@ src/
 │   ├── schema.ts          # Zod models mirroring the SQL tables + snapshot validation
 │   ├── repository.ts      # async repository contract + in-memory implementation
 │   └── selectors.ts       # derived read-models for the UI
-├── state/                 # SimulationProvider (tick loop, actions, toasts), SettingsProvider
-├── lib/                   # formatting, export, report builders, hooks
-└── app/                   # App Router pages (10 modules + detail routes)
+├── server/                # persistence service layer (Prisma) + route helpers
+├── state/                 # SimulationProvider (tick loop, actions, persistence), SettingsProvider
+├── lib/                   # formatting, export, snapshot, persistence-client, hooks
+└── app/                   # App Router pages (10 modules, detail routes, 4 persistence APIs)
 components/                # shadcn-style UI kit, charts, layout, feature widgets
-prisma/                    # schema.prisma + SQL migration (PostgreSQL target)
-docs/database.md           # data-architecture guide
-tests/                     # vitest suite for the simulation engine
+prisma/                    # schema.prisma + migrations/20261114090000_init
+scripts/                   # prisma/migrate/db-up/e2e-prepare helpers
+tests/                     # vitest suites (8) + Playwright e2e specs (7)
+.github/workflows/ci.yml   # PR gate: install, typecheck, lint, unit tests, build + E2E job
 ```
 
 Key design decisions:
@@ -144,66 +203,105 @@ Key design decisions:
   recent active action can be rolled back, guaranteeing consistent state.
 - **Evidence windows** in the analysis layer use bounded lookbacks so
   confidence scores decay as the system recovers.
-
-### PostgreSQL-ready data layer (documented deviation)
-
-The product brief calls for a PostgreSQL-ready architecture. The runtime uses
-a **deterministic in-memory repository** by default so the app runs with zero
-infrastructure, and ships the production persistence layer alongside it:
-
-- `prisma/schema.prisma` + `prisma/migrations/0001_init.sql` — full DDL for
-  services, incidents, timeline, metrics, logs, traces/spans, recovery actions
-  and settings;
-- `src/data/schema.ts` — Zod contracts mirroring those tables (also validates
-  workspace snapshot exports);
-- `src/data/repository.ts` — async repository interfaces the UI already
-  programs against; `docs/database.md` explains how to swap in Prisma.
-
-**Why not run Prisma at runtime?** `@prisma/client` downloads native engines
-from `binaries.prisma.sh` during install, which is unreachable from this build
-environment, and a runtime Prisma client would violate the "runs without
-external infrastructure" requirement. The schema is complete and ready — set
-`DATABASE_URL`, run `prisma generate && prisma migrate deploy`, implement the
-repository methods, and no application code changes are needed. See
-`docs/database.md`.
+- **Offline-friendly tooling**: `scripts/prisma.mjs` wraps Prisma CLI commands
+  (client generation works fully from npm-installed packages), and
+  `scripts/migrate.mjs` applies the canonical SQL migrations directly.
 
 ---
 
 ## Verification (commands + actual results)
 
 ```bash
-npm install          # 492 packages, exit 0
+npm install          # exit 0 (postinstall: Prisma client generated)
 npm run typecheck    # exit 0 — no errors
 npm run lint         # exit 0 — 0 errors, 0 warnings
-npm test             # exit 0 — Test Files 5 passed (5) | Tests 45 passed (45)
-npm run build        # exit 0 — production build compiled
+npm test             # exit 0 — Test Files 8 passed (8) | Tests 65 passed (65)
+npm run build        # exit 0 — 16 routes compiled
+npm run test:e2e     # exit 0 — 31 passed (Playwright, local Chromium + PostgreSQL)
 ```
 
-Test coverage (all executed, none mocked):
+Unit/integration coverage (all executed):
 
 - `tests/determinism.test.ts` — identical initial state & 30-tick trajectories
   per scenario; action-sequence determinism; sim clock invariants.
 - `tests/engine.test.ts` — warm-up population, healthy baselines, fault
-  progression, red-herring healthiness (payments provider), SEV1 escalation,
-  auto-resolve, KPI bounds.
+  progression, red-herring healthiness, SEV1 escalation, auto-resolve, KPI
+  bounds.
 - `tests/recovery.test.ts` — every action applies; pool resize/timeout effects;
-  stack-semantics rollback (reject stale rollback, restore `faultBefore`);
-  restart ⇒ relapse regression; patch ⇒ stable recovery; fail-open trade-off;
-  red-herring action neutrality; timeline audit entries.
+  stack-semantics rollback; restart ⇒ relapse regression; patch ⇒ stable
+  recovery; fail-open trade-off; red-herring neutrality; timeline audits.
 - `tests/analysis.test.ts` — planted root cause ranks #1 in all three
-  scenarios; confidences sorted/bounded with evidence deep links; distractors
-  score below the truth; deterministic rankings; confidence decays after
-  recovery.
-- `tests/report.test.ts` — report sections, impact metrics, root-cause
-  verification (verified/refuted), Markdown/JSON export, snapshot validation.
+  scenarios; sorted/bounded confidences with evidence deep links; confidence
+  decays after recovery.
+- `tests/report.test.ts` — report sections, impact metrics, verification
+  (verified/refuted), Markdown/JSON export, snapshot validation.
+- `tests/persistence.test.ts` — **real PostgreSQL**: boots an embedded server,
+  applies migrations idempotently, round-trips save/load/clear through Prisma,
+  asserts normalised row counts.
+- `tests/routes.test.ts` — every sidebar entry has a real `page.tsx`
+  (regression guard for the missing-route class of bug), detail + API routes
+  exist, navigation has 10 unique entries.
+- `tests/ui/sidebar.test.tsx` — jsdom: all ten modules render as real links
+  with correct hrefs, group headings, `aria-current`.
+
+End-to-end coverage (Playwright, all executed against a production build):
+
+- `navigation` — each of the 10 sidebar modules opens a functional page with
+  its own heading and substantive content; detail deep links work.
+- `scenario-persistence` — topbar scenario switching, reload resumes the tick,
+  settings survive reload, reset returns the warm-up snapshot.
+- `investigation` — correlation analysis → ranked hypotheses → record root
+  cause → resolve → reveal/verify; evidence deep links navigate.
+- `recovery` — apply action → confirmation → before/after KPIs → history →
+  reload persistence → stack rollback; red-herring action applies safely.
+- `reports` — report list → full report sections → Markdown download → history
+  survives scenario switches.
+- `logs` — level/search filters with URL state, deep links, row-detail dialog,
+  CSV export, live-tail toggle.
+- `persistence-db` — live PostgreSQL status, save/load API round-trip,
+  fresh-browser-profile restore from the database, invalid payload rejection.
+
+---
+
+## Implemented vs. future work
+
+### Implemented now
+
+- All **ten sidebar modules** with functional pages (including the Log
+  Explorer at `/logs`) plus detail routes for incidents, services, traces and
+  reports.
+- **Deterministic simulation engine** with three scenarios, incidents,
+  hypotheses, recovery actions (incl. red herrings) and verified reports.
+- **Two-tier persistence**: localStorage snapshots + PostgreSQL via Prisma 7
+  (snapshot & full-normalised save modes, restore, clear, status API).
+- **Persistence across reloads** for simulation state, incidents, metrics,
+  logs, traces and recovery history.
+- **Settings** with validated local persistence and database controls.
+- **Tests**: 65 unit/integration tests (incl. a real-PostgreSQL suite) and 31
+  Playwright end-to-end tests covering navigation, scenario switching,
+  investigations, recovery/rollback, reports and persistence.
+- **CI** on every pull request: install → Prisma generate → typecheck → lint →
+  unit tests → production build, plus an E2E job with a PostgreSQL service.
+
+### Future work (not implemented)
+
+- Multi-user/multi-workspace collaboration (single workspace, single tab today).
+- Retention/rollup policies beyond the fixed telemetry window (1 200 ticks).
+- Additional scenarios or a scenario authoring UI (scenarios are code).
+- Real-time database streaming (persistence uses REST + periodic snapshots,
+  not subscriptions).
+- Visual regression/screenshot testing and performance budgets in CI.
+- Authenticated access to the persistence API (currently open on the app
+  origin, intended for local/trusted deployments).
 
 ---
 
 ## Tech stack
 
 Next.js 16 (App Router) · React 19 · TypeScript 5.9 (strict) · Tailwind CSS 4 ·
-Radix/shadcn-style components · Lucide icons · Recharts · React Flow ·
-Zod · Vitest · ESLint (flat config) · Geist fonts.
+Radix/shadcn-style components · Lucide icons · Recharts · React Flow · Zod ·
+Prisma 7 + PostgreSQL (pg adapter) · Vitest · Playwright · ESLint (flat config)
+· Geist fonts.
 
 No paid APIs, no external services, no telemetry.
 
@@ -211,20 +309,20 @@ No paid APIs, no external services, no telemetry.
 
 ## Limitations
 
-- **State is session-only.** Simulation state lives in memory (and settings in
-  `localStorage`); a page reload re-seeds the deterministic snapshot. The
-  PostgreSQL layer is shipped as schema + repository contract, not wired to a
-  live database (see above).
-- **Prisma CLI is not installed** (engine CDN unreachable from the build
-  environment); the schema/SQL are validated by inspection and mirrored by the
-  Zod contracts.
 - Traces/metrics are simulated at realistic but fixed cardinality (10 services,
-  ~120 metric points, ~300 traces per session) to keep the UI instant.
+  ~1 170 metric points, ~300 traces per run) to keep the UI instant.
 - Scenario scripts are hand-authored; the engine models queueing, saturation
-  and cascade waves with simple deterministic heuristics rather than a
-  full discrete-event simulator.
-- Concurrent multi-user collaboration is out of scope (single workspace,
-  single tab).
+  and cascade waves with deterministic heuristics rather than a full
+  discrete-event simulator.
+- The full save mode writes the snapshot and normalised telemetry in one
+  transaction; concurrent saves from multiple tabs are last-writer-wins (single
+  workspace by design).
+- The embedded development PostgreSQL (`npm run db:up`) is a convenience for
+  local/CI use — production deployments should provide their own server via
+  `DATABASE_URL`.
+- Some Prisma CLI commands require network access in restricted environments;
+  `scripts/prisma.mjs` and `scripts/migrate.mjs` cover generate/migrate without
+  it.
 
 ---
 
@@ -237,7 +335,8 @@ DATABASE_URL="postgresql://user:password@localhost:5432/blackbox?schema=public"
 NODE_ENV="development"
 ```
 
-No secrets are committed. The app runs with an empty environment.
+No secrets are committed. The app runs with an empty environment
+(localStorage-only mode).
 
 ---
 
