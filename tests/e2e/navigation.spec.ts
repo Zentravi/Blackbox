@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { waitForHydration } from "./helpers";
 import { NAV_ITEMS } from "../../src/lib/constants";
 
 /** Each module's actual <h1> (PageHeader title). */
@@ -22,6 +23,7 @@ const H1: Record<string, RegExp> = {
 test.describe("navigation", () => {
   test("sidebar exposes all ten modules", async ({ page }) => {
     await page.goto("/dashboard");
+    await waitForHydration(page);
     expect(NAV_ITEMS).toHaveLength(10);
     const sidebar = page.getByRole("complementary");
     for (const item of NAV_ITEMS) {
@@ -35,6 +37,7 @@ test.describe("navigation", () => {
   for (const item of NAV_ITEMS) {
     test(`${item.label} (${item.href}) renders a functional page`, async ({ page }) => {
       await page.goto("/dashboard");
+      await waitForHydration(page);
       await page
         .getByRole("complementary")
         .getByRole("link", { name: item.label, exact: true })
@@ -57,6 +60,7 @@ test.describe("navigation", () => {
 
   test("deep links to detail routes work", async ({ page }) => {
     await page.goto("/dashboard");
+    await waitForHydration(page);
     // Active incident card links into the incident detail page.
     const incidentLink = page.locator('a[href^="/incidents/"]').first();
     await incidentLink.click();
@@ -66,11 +70,13 @@ test.describe("navigation", () => {
     await expect(page.getByText(/INC-\d+/i).first()).toBeVisible();
 
     await page.goto("/services");
+    await waitForHydration(page);
     await page.locator('a[href^="/services/"]').first().click();
     await page.waitForURL(/\/services\/[a-z-]+$/);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
     await page.goto("/traces");
+    await waitForHydration(page);
     // Trace rows navigate via router.push (not anchors) — click the first row.
     const traceRow = page.locator("tbody tr").first();
     await expect(traceRow).toBeVisible();

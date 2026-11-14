@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { freshScenario } from "./helpers";
+import { freshScenario, waitForHydration } from "./helpers";
 
 test.describe("investigation flow", () => {
   test("correlation analysis ranks hypotheses and verifies the root cause", async ({ page }) => {
@@ -7,6 +7,7 @@ test.describe("investigation flow", () => {
 
     // Deep-link straight to the active incident's analysis context.
     await page.goto("/investigate?incident=inc-1042");
+    await waitForHydration(page);
     await expect(page.getByText(/INC-1042/i).first()).toBeVisible();
 
     // Run the analysis (engine has a short deliberate "correlating" delay).
@@ -21,6 +22,7 @@ test.describe("investigation flow", () => {
 
     // Resolve the same incident from the Incident Center.
     await page.goto("/incidents");
+    await waitForHydration(page);
     await page.locator('a[href="/incidents/inc-1042"]').first().click();
     await page.waitForURL(/\/incidents\/inc-1042/);
     await page.getByRole("button", { name: /^Resolve$/ }).click();
@@ -32,6 +34,7 @@ test.describe("investigation flow", () => {
     // Back on the investigation page the answer is revealed and verified.
     // (Analysis results are per-visit state — re-run to render the cards.)
     await page.goto("/investigate?incident=inc-1042");
+    await waitForHydration(page);
     await page
       .getByRole("button", { name: /Run correlation analysis|Re-run analysis/i })
       .first()
@@ -43,6 +46,7 @@ test.describe("investigation flow", () => {
   test("analysis produces evidence deep links that navigate", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/investigate?incident=inc-1042");
+    await waitForHydration(page);
     await page.getByRole("button", { name: /Run correlation analysis/i }).first().click();
     const topCard = page.locator("[data-testid=hypothesis-card]").first();
     await expect(topCard).toBeVisible({ timeout: 20_000 });

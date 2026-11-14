@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { freshScenario } from "./helpers";
+import { freshScenario, waitForHydration } from "./helpers";
 
 test.describe("reports", () => {
   test("report list shows incidents and opens a full report", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/reports");
+    await waitForHydration(page);
 
     // Resolved historical incidents are present with outcome badges.
     const reportLink = page.locator('a[href^="/reports/inc-"]').first();
@@ -28,6 +29,7 @@ test.describe("reports", () => {
 
   test("markdown export downloads a file", async ({ page }) => {
     await page.goto("/reports");
+    await waitForHydration(page);
     await page.locator('a[href^="/reports/inc-"]').first().click();
     await page.waitForURL(/\/reports\/inc-/);
 
@@ -40,12 +42,14 @@ test.describe("reports", () => {
   test("reports survive scenario switches (history is archived)", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/reports");
+    await waitForHydration(page);
     const before = await page.locator('a[href^="/reports/inc-"]').count();
     expect(before).toBeGreaterThan(0);
 
     // Switch scenario — previous run's incidents stay reportable.
     await freshScenario(page, /Cascading service failure/i);
     await page.goto("/reports");
+    await waitForHydration(page);
     const after = await page.locator('a[href^="/reports/inc-"]').count();
     expect(after).toBeGreaterThanOrEqual(before);
   });

@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { freshScenario } from "./helpers";
+import { freshScenario, waitForHydration } from "./helpers";
 
 test.describe("log explorer", () => {
   test("renders rows, filters by level and search, deep-links from URL", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/logs");
+    await waitForHydration(page);
 
     // Rows are present.
     const rows = page.getByTestId("log-row");
@@ -24,11 +25,13 @@ test.describe("log explorer", () => {
 
     // Deep link restores filters.
     await page.goto("/logs?level=warn&q=pool");
+    await waitForHydration(page);
     await expect(page).toHaveURL(/level=warn/);
     await expect(page.getByPlaceholder(/Search message/i)).toHaveValue("pool");
 
     // Search narrows results further.
     await page.goto("/logs");
+    await waitForHydration(page);
     await page.getByPlaceholder(/Search message/i).fill("pool");
     await expect(page).toHaveURL(/q=pool/);
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
@@ -39,6 +42,7 @@ test.describe("log explorer", () => {
   test("row click opens the fields dialog with trace link", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/logs");
+    await waitForHydration(page);
     const row = page.getByTestId("log-row").first();
     await row.click();
     const dialog = page.getByRole("dialog");
@@ -50,6 +54,7 @@ test.describe("log explorer", () => {
   test("CSV export downloads the filtered view", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/logs");
+    await waitForHydration(page);
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: /Export CSV/i }).click();
     const download = await downloadPromise;
@@ -59,6 +64,7 @@ test.describe("log explorer", () => {
   test("live tail toggle switches between newest-window and full browse", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/logs");
+    await waitForHydration(page);
     const toggle = page.getByLabel(/Live tail|live tail/i);
     await expect(toggle).toBeChecked();
     await toggle.click({ force: true });

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { freshScenario } from "./helpers";
+import { freshScenario, waitForHydration } from "./helpers";
 
 /**
  * PostgreSQL persistence end-to-end (requires DATABASE_URL on the server).
@@ -51,6 +51,7 @@ test.describe("database persistence", () => {
   }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/settings");
+    await waitForHydration(page);
 
     // Save the current state to PostgreSQL.
     await page.getByRole("button", { name: /Save now/i }).click();

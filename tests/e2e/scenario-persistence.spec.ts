@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { ensureScenario, freshScenario } from "./helpers";
+import { ensureScenario, freshScenario, waitForHydration } from "./helpers";
 
 test.describe("scenario switching & reload persistence", () => {
   test("topbar switcher loads another scenario and survives reload", async ({ page }) => {
     await page.goto("/dashboard");
+    await waitForHydration(page);
     await expect(page.getByRole("button", { name: /Database connection exhaustion/i })).toBeVisible();
 
     await ensureScenario(page, /API latency degradation/i);
@@ -11,6 +12,7 @@ test.describe("scenario switching & reload persistence", () => {
     // Topbar now shows the new scenario; incidents changed accordingly.
     await expect(page.getByRole("button", { name: /API latency degradation/i })).toBeVisible();
     await page.goto("/incidents");
+    await waitForHydration(page);
     await expect(page.getByText(/worker pool|ranking|latency/i).first()).toBeVisible();
 
     // Reload → local snapshot restores the same scenario (issue #4).
@@ -23,6 +25,7 @@ test.describe("scenario switching & reload persistence", () => {
 
   test("reload resumes the simulation tick from the local snapshot", async ({ page }) => {
     await page.goto("/dashboard");
+    await waitForHydration(page);
     // Advance one tick manually for a deterministic delta.
     await page.getByRole("button", { name: "Advance one tick" }).click();
     await page.getByRole("button", { name: "Pause simulation" }).click();
@@ -37,6 +40,7 @@ test.describe("scenario switching & reload persistence", () => {
 
   test("settings preferences persist across reload", async ({ page }) => {
     await page.goto("/settings");
+    await waitForHydration(page);
     const autoStart = page.getByLabel("Auto-start simulation");
     await expect(autoStart).toBeVisible();
     // Let settings hydration (localStorage read) settle before interacting.
@@ -53,6 +57,7 @@ test.describe("scenario switching & reload persistence", () => {
 
   test("reset returns the scenario to its warm-up snapshot", async ({ page }) => {
     await page.goto("/dashboard");
+    await waitForHydration(page);
     await freshScenario(page, /Database connection exhaustion/i);
   });
 });

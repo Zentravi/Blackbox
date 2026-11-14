@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { freshScenario } from "./helpers";
+import { freshScenario, waitForHydration } from "./helpers";
 
 test.describe("recovery simulator", () => {
   test("apply action → KPI delta → rollback → persists across reload", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/recovery");
+    await waitForHydration(page);
 
     // Apply the first recovery action (confirmation dialog included).
     const firstCard = page.locator("[data-testid=action-card]").first();
@@ -38,6 +39,7 @@ test.describe("recovery simulator", () => {
   test("red-herring action applies but changes nothing (documented trade-off)", async ({ page }) => {
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/recovery");
+    await waitForHydration(page);
 
     // The deploy rollback card is the red herring in scenario A — find it.
     const cards = page.locator("[data-testid=action-card]");
