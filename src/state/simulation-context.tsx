@@ -116,18 +116,27 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     setState(next);
   }, []);
 
+  // Serialise remote saves from this client: fire-and-forget calls (scenario
+  // reset, apply/rollback) plus manual "Save now" would otherwise race on the
+  // wire and let an older payload land last. The payload is captured when the
+  // save is requested; execution waits for the previous save to finish.
+  const remoteSaveChain = useRef<Promise<unknown>>(Promise.resolve());
+
   const persistRemote = useCallback(async (mode: "snapshot" | "full"): Promise<boolean> => {
     if (!remoteRef.current?.configured) return false;
     setSyncing(true);
+    const payload = stateRef.current;
+    const run = remoteSaveChain.current.then(() => saveRemoteSnapshot(payload, mode));
+    remoteSaveChain.current = run.catch(() => ({ ok: false }));
     try {
-      const res = await saveRemoteSnapshot(stateRef.current, mode);
+      const res = await run;
       const base = remoteRef.current ?? { configured: true, connected: res.ok };
       setRemote({
         ...base,
         connected: res.ok,
         error: res.error,
-        tick: stateRef.current.tick,
-        scenarioId: stateRef.current.scenarioId,
+        tick: payload.tick,
+        scenarioId: payload.scenarioId,
         updatedAt: res.ok ? new Date().toISOString() : base.updatedAt,
       });
       remoteRef.current = { ...base, connected: res.ok, error: res.error };
