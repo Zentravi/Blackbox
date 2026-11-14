@@ -110,7 +110,7 @@ describe("PostgreSQL persistence (Prisma)", () => {
     const { createInitialState } = await import("@/simulation/engine");
 
     const original = createInitialState("cascading");
-    await saveState(original, "snapshot");
+    await saveState(original, "full");
     const loaded = await loadState();
     expect(loaded).not.toBeNull();
     expect(loaded!.tick).toBe(original.tick);
@@ -119,6 +119,27 @@ describe("PostgreSQL persistence (Prisma)", () => {
     expect(loaded!.logs.length).toBe(original.logs.length);
     expect(loaded!.incidents.length).toBe(original.incidents.length);
     expect(loaded!.fault).toEqual(original.fault);
+  }, 60_000);
+
+  it("rejects stale snapshot saves but allows full-save rewinds", async () => {
+    const { saveState, loadState } = await import("@/server/persistence");
+    const { createInitialState } = await import("@/simulation/engine");
+
+    const newer = { ...createInitialState("db-exhaustion"), tick: 500 };
+    await saveState(newer, "full");
+
+    // Older snapshot (unload beacon race) → skipped, row unchanged.
+    const stale = { ...newer, tick: 400 };
+    const res = await saveState(stale, "snapshot");
+    expect(res.skipped).toBe(true);
+    const after = await loadState();
+    expect(after!.tick).toBe(500);
+
+    // Older full save (deliberate rewind: reset/load) → accepted.
+    const rewind = { ...newer, tick: 120 };
+    const res2 = await saveState(rewind, "full");
+    expect(res2.skipped).toBeUndefined();
+    expect((await loadState())!.tick).toBe(120);
   }, 60_000);
 
   it("clearState removes the snapshot", async () => {

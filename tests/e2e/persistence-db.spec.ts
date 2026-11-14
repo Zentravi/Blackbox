@@ -36,8 +36,10 @@ test.describe("database persistence", () => {
 
     // Put the original state back so later assertions aren't polluted.
     if (original) {
+      // Full mode: rewinds are only authoritative via full saves (snapshot
+      // saves are monotonic to defeat unload-beacon races).
       const restore = await request.post("/api/persistence/save", {
-        data: { state: original, mode: "snapshot" },
+        data: { state: original, mode: "full" },
       });
       expect(restore.ok()).toBe(true);
     }

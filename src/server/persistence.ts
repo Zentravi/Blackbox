@@ -61,9 +61,32 @@ export async function saveState(state: SimState, mode: SaveMode = "full"): Promi
   tick: number;
   scenarioId: string;
   mode: SaveMode;
+  skipped?: boolean;
 }> {
   const db = getDb();
   if (!db) throw new Error("DATABASE_URL is not configured");
+
+  if (mode === "snapshot") {
+    // Snapshot saves are background telemetry (autosave / unload beacons) and
+    // may arrive out of order — e.g. a pagehide beacon from a page that was
+    // navigated away from can land after a newer manual "Save now". Reject
+    // anything older than what is stored so it cannot roll the row back.
+    // Full saves stay authoritative (they carry deliberate rewinds like
+    // scenario resets and loads).
+    const existing = await db.simulationState.findUnique({
+      where: { id: WORKSPACE_ID },
+      select: { tick: true },
+    });
+    if (existing && state.tick < existing.tick) {
+      return {
+        savedAt: new Date().toISOString(),
+        tick: existing.tick,
+        scenarioId: state.scenarioId,
+        mode,
+        skipped: true,
+      };
+    }
+  }
 
   const payload = json(state);
   // PrismaPromises are lazy until awaited, so this op can either run alone
