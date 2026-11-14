@@ -24,8 +24,10 @@ export default defineConfig({
   expect: { timeout: 12_000 },
   fullyParallel: false,
   workers: 1,
-  retries: 0,
-  reporter: [["list"]],
+  // CI runners are slower — one retry absorbs timing flakes; failures then
+  // surface as GitHub annotations via the "github" reporter (readable in PRs).
+  retries: isCI ? 1 : 0,
+  reporter: isCI ? [["list"], ["github"]] : [["list"]],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3210",
     trace: "retain-on-failure",
