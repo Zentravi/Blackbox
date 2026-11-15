@@ -1,0 +1,24 @@
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "src/generated/**",
+    "playwright-report/**",
+    "test-results/**",
+    ".blackbox-pg/**",
+    "**/*.config.mjs",
+    "**/*.config.ts",
+    "node_modules/**",
+    "prisma/**",
+  ]),
+]);
+
+export default eslintConfig;
