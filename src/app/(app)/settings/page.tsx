@@ -39,6 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { downloadTextFile } from "@/lib/export";
+import { loginWithToken } from "@/lib/persistence-client";
 import { formatDateTime } from "@/lib/format";
 import { APP_VERSION } from "@/lib/constants";
 
@@ -70,7 +71,30 @@ export default function SettingsPage() {
   const { settings, update, reset } = useSettings();
   const { state, loadScenario, reset: resetScenario, persistence } = useSimulation();
   const [confirmDbClear, setConfirmDbClear] = useState(false);
+  const [unlockToken, setUnlockToken] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
   const [resetAllOpen, setResetAllOpen] = useState(false);
+
+  /** Exchange the shared API token for a session cookie, then re-check status. */
+  const handleUnlock = async () => {
+    const token = unlockToken.trim();
+    if (!token) return;
+    setUnlocking(true);
+    try {
+      const res = await loginWithToken(token);
+      if (!res.ok) {
+        toast.error("Unlock failed", { description: "The server rejected the token." });
+        return;
+      }
+      await persistence.refreshStatus();
+      setUnlockToken("");
+      toast.success("Persistence unlocked", {
+        description: "Database sync is enabled for this browser.",
+      });
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const saved = (label: string) => toast.success(`${label} saved`, { id: "settings" });
 
@@ -390,6 +414,8 @@ export default function SettingsPage() {
               <span className="flex items-center gap-1.5 font-mono" data-testid="db-status">
                 {persistence.remote === null ? (
                   <span className="text-muted-foreground">checking…</span>
+                ) : persistence.remote.locked ? (
+                  <span className="text-warning">locked — authentication required</span>
                 ) : !persistence.remote.configured ? (
                   <span className="text-muted-foreground">not configured (set DATABASE_URL)</span>
                 ) : persistence.remote.connected ? (
@@ -410,10 +436,42 @@ export default function SettingsPage() {
               </span>
             </div>
 
+            {persistence.remote?.locked ? (
+              <div className="flex flex-wrap items-center gap-2 pt-1" data-testid="unlock-row">
+                <Input
+                  data-testid="unlock-token"
+                  type="password"
+                  placeholder="PERSISTENCE_API_TOKEN"
+                  value={unlockToken}
+                  onChange={(e) => setUnlockToken(e.target.value)}
+                  className="h-8 w-56 text-xs font-mono"
+                  autoComplete="current-password"
+                  aria-label="Persistence API token"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleUnlock}
+                  disabled={unlocking || !unlockToken.trim()}
+                >
+                  {unlocking ? "Unlocking…" : "Unlock persistence"}
+                </Button>
+                <span className="text-muted-foreground">
+                  The server requires a token (PERSISTENCE_API_TOKEN).
+                </span>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap gap-2 pt-1">
               <Button
                 size="sm"
                 onClick={async () => {
+                  if (persistence.remote?.locked) {
+                    toast.info("Persistence locked", {
+                      description: "Unlock the persistence API with its token first.",
+                    });
+                    return;
+                  }
                   const ok = await persistence.saveNow();
                   if (ok) {
                     toast.success("Saved to database", {
@@ -438,6 +496,12 @@ export default function SettingsPage() {
                 size="sm"
                 variant="outline"
                 onClick={async () => {
+                  if (persistence.remote?.locked) {
+                    toast.info("Persistence locked", {
+                      description: "Unlock the persistence API with its token first.",
+                    });
+                    return;
+                  }
                   const ok = await persistence.restoreFromDb();
                   if (ok) toast.success("State restored from database");
                   else

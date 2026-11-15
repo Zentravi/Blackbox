@@ -111,9 +111,91 @@ npm run dev            # app now saves to + restores from PostgreSQL
 Without `DATABASE_URL`:
 
 - `GET /api/persistence/status` returns `configured: false`,
-- save/clear routes answer `409 not configured`,
+- save/clear fail with a generic `503` (`save failed` / `clear failed`) —
+  the raw configuration error stays in the server log,
 - the app keeps working from localStorage (Settings shows
   "Saved locally only").
+
+With `DATABASE_URL` set, the endpoints additionally require authentication —
+see [docs/security.md](./security.md) (`PERSISTENCE_API_TOKEN`).
+
+## Production deployment
+
+1. **Inject secrets via the environment** (secret manager / platform env):
+   `DATABASE_URL` (TLS, least-privilege role) and `PERSISTENCE_API_TOKEN`
+   (≥ 16 chars, `openssl rand -hex 32`). Never bake either into the image.
+   `NODE_ENV=production` activates deny-by-default persistence auth and HSTS.
+2. **Build once, start once**: `npm ci && npm run build && npm start` —
+   `scripts/prisma.mjs generate` runs at build time; the server does not
+   need a database to boot (it answers `configured: false` until the DB is
+   reachable).
+3. **Run migrations before routing traffic**:
+   `DATABASE_URL=… npm run db:migrate` (idempotent; prints `up to date` when
+   already applied). The startup order — migrate → start → health-check
+   `GET /api/persistence/status` — is verified by CI on every PR.
+4. **Rollout check**: a fresh deployment against an empty database was
+   exercised end-to-end in the audit (migrate → save → status/load respond
+   `connected: true`).
+
+## Backup & recovery
+
+Everything needed for restore lives in PostgreSQL; localStorage is a cache.
+
+**Standard deployments (pg client tools available):**
+
+```bash
+# Backup (custom format = compressed + selective-restore capable)
+pg_dump --format=custom \
+  --host=127.0.0.1 --port=54329 --username=postgres \
+  --dbname=blackbox --file=blackbox-$(date +%F).dump
+
+# Recovery into a fresh deployment (empty database, schema comes from dump)
+createdb --host=… --username=… blackbox_restore
+pg_restore --host=… --username=… --dbname=blackbox_restore \
+  --no-owner blackbox-2026-11-15.dump
+```
+
+**Bundled fallback (no pg client tools — e.g. the embedded server, which
+ships only `initdb`/`pg_ctl`/`postgres`):** the repo ships a logical
+backup/restore pair driven by the `pg` driver that Prisma already depends on:
+
+```bash
+# Backup all 12 tables to JSON
+DATABASE_URL=… node scripts/db-backup.mjs backup.json
+
+# Fresh deployment, then restore data (schema is owned by migrations)
+DATABASE_URL=… npm run db:migrate
+DATABASE_URL=… node scripts/db-restore.mjs backup.json
+```
+
+Both scripts use parameterised SQL (no string interpolation of values) and
+restore tables in FK-safe order.
+
+- Retention suggestion: daily backups + keep the last 7–30 days; test the
+  restore quarterly (the audit's drill below is the template).
+- After a restore, `npm run db:migrate` reports `up to date` (the ledger is
+  rebuilt by the migrations, not the data dump) and
+  `GET /api/persistence/status` answers `connected: true` with the restored
+  tick.
+
+### Restore drill (audit execution, 2026-11-15)
+
+Executed against the embedded PostgreSQL (`:54329`) with a populated
+workspace:
+
+1. `node scripts/db-backup.mjs /tmp/blackbox-backup.json` — snapshot of all
+   12 tables.
+2. Fresh deployment simulation: `CREATE DATABASE blackbox_restore_test` on an
+   empty database + `npm run db:migrate` → migration applied.
+3. `node scripts/db-restore.mjs` into the fresh database → every table
+   restored, row counts match the dump.
+4. `npm run db:migrate` again → `Database is up to date`.
+5. Verification through the application's own persistence code
+   (`getStatus()` + `loadState()` pointed at the restored database):
+   `connected: true` and a valid simulation state with the same tick — the
+   restored workspace loads end-to-end.
+
+Exact outputs are reproduced in the PR audit report.
 
 ## What lives where
 
@@ -131,4 +213,8 @@ Without `DATABASE_URL`:
   save → load round-trip, and asserts the monotonic snapshot guard
   (stale snapshot rejected, full-save rewind allowed).
 - `tests/e2e/persistence-db.spec.ts` covers the HTTP surface end-to-end:
-  status, round-trip, cross-profile restore, invalid payload rejection.
+  status, round-trip, cross-profile restore, invalid payload rejection
+  (authenticated with a bearer token).
+- `tests/e2e/api-security.spec.ts` covers the security contract: 401 without
+  credentials, CSRF rejection, session-cookie login, confirmation header for
+  `clear`, login throttling, generic error bodies.

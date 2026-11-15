@@ -1,18 +1,20 @@
 import { expect, test } from "@playwright/test";
-import { freshScenario, waitForHydration } from "./helpers";
+import { bearerHeaders, freshScenario, loginPersistence, persistenceToken, waitForHydration } from "./helpers";
 
 /**
- * PostgreSQL persistence end-to-end (requires DATABASE_URL on the server).
- * The webServer started by playwright.config.ts inherits DATABASE_URL from
- * the environment — see package.json `test:e2e` and .github/workflows/ci.yml.
+ * PostgreSQL persistence end-to-end (requires DATABASE_URL + an auth token
+ * on the server). The webServer started by playwright.config.ts inherits
+ * both from the environment — see .env.local (local) and
+ * .github/workflows/ci.yml (CI).
  */
 const dbConfigured = Boolean(process.env.DATABASE_URL);
+const authed = Boolean(persistenceToken());
 
 test.describe("database persistence", () => {
-  test.skip(!dbConfigured, "DATABASE_URL not set — skipping PostgreSQL E2E");
+  test.skip(!dbConfigured || !authed, "DATABASE_URL / PERSISTENCE_API_TOKEN not set — skipping PostgreSQL E2E");
 
   test("status endpoint reports a live connection", async ({ request }) => {
-    const res = await request.get("/api/persistence/status");
+    const res = await request.get("/api/persistence/status", { headers: bearerHeaders() });
     expect(res.ok()).toBe(true);
     const body = await res.json();
     expect(body.configured).toBe(true);
@@ -20,16 +22,18 @@ test.describe("database persistence", () => {
   });
 
   test("save → load round-trips the simulation state", async ({ request }) => {
-    const original = (await (await request.get("/api/persistence/load")).json()).state;
+    const headers = bearerHeaders();
+    const original = (await (await request.get("/api/persistence/load", { headers })).json()).state;
 
     const saveRes = await request.post("/api/persistence/save", {
+      headers,
       data: { state: buildProbeState(), mode: "snapshot" },
     });
     expect(saveRes.ok()).toBe(true);
     const saved = await saveRes.json();
     expect(saved.tick).toBe(999);
 
-    const loaded = await (await request.get("/api/persistence/load")).json();
+    const loaded = await (await request.get("/api/persistence/load", { headers })).json();
     expect(loaded.state).toBeTruthy();
     expect(loaded.state.tick).toBe(999);
     expect(loaded.state.scenarioId).toBe("db-exhaustion");
@@ -39,6 +43,7 @@ test.describe("database persistence", () => {
       // Full mode: rewinds are only authoritative via full saves (snapshot
       // saves are monotonic to defeat unload-beacon races).
       const restore = await request.post("/api/persistence/save", {
+        headers,
         data: { state: original, mode: "full" },
       });
       expect(restore.ok()).toBe(true);
@@ -49,6 +54,9 @@ test.describe("database persistence", () => {
     page,
     browser,
   }) => {
+    // Authenticate this browser profile first — the app then reads the
+    // session cookie on every /api/persistence call.
+    await loginPersistence(page.request);
     await freshScenario(page, /Database connection exhaustion/i);
     await page.goto("/settings");
     await waitForHydration(page);
@@ -62,10 +70,12 @@ test.describe("database persistence", () => {
     const savedTick = Number((savedTickText.match(/tick (\d+)/) ?? [])[1]);
     expect(Number.isFinite(savedTick)).toBe(true);
 
-    // A brand-new browser profile has no local snapshot → the provider must
-    // restore from PostgreSQL (the flow used when local storage is lost).
+    // A brand-new browser profile has no local snapshot → log it in, then the
+    // provider must restore from PostgreSQL (the flow used when local storage
+    // is lost).
     const fresh = await browser.newContext();
     try {
+      await loginPersistence(fresh.request);
       const p2 = await fresh.newPage();
       await p2.goto("/dashboard");
       await expect(p2.getByText(/Restored from database/i)).toBeVisible({ timeout: 30_000 });
@@ -80,7 +90,10 @@ test.describe("database persistence", () => {
   });
 
   test("invalid payloads are rejected", async ({ request }) => {
-    const res = await request.post("/api/persistence/save", { data: { state: { nope: true } } });
+    const res = await request.post("/api/persistence/save", {
+      headers: bearerHeaders(),
+      data: { state: { nope: true } },
+    });
     expect(res.status()).toBe(422);
   });
 });

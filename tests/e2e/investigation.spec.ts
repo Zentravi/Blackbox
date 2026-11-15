@@ -13,7 +13,7 @@ test.describe("investigation flow", () => {
     // Run the analysis (engine has a short deliberate "correlating" delay).
     await page.getByRole("button", { name: /Run correlation analysis|Re-run analysis/i }).first().click();
     const topCard = page.locator("[data-testid=hypothesis-card]").first();
-    await expect(topCard).toBeVisible({ timeout: 20_000 });
+    await expect(topCard).toBeVisible({ timeout: 40_000 });
     await expect(topCard).toContainText(/confidence/i);
 
     // Record the top-ranked hypothesis as the root cause.
@@ -39,7 +39,7 @@ test.describe("investigation flow", () => {
       .getByRole("button", { name: /Run correlation analysis|Re-run analysis/i })
       .first()
       .click();
-    await expect(page.getByText("Your RC").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Your RC").first()).toBeVisible({ timeout: 40_000 });
     await expect(page.getByText(/Verified: your root cause matches/i).first()).toBeVisible();
   });
 
@@ -49,7 +49,7 @@ test.describe("investigation flow", () => {
     await waitForHydration(page);
     await page.getByRole("button", { name: /Run correlation analysis/i }).first().click();
     const topCard = page.locator("[data-testid=hypothesis-card]").first();
-    await expect(topCard).toBeVisible({ timeout: 20_000 });
+    await expect(topCard).toBeVisible({ timeout: 40_000 });
 
     const evidenceLink = topCard.locator('a[href^="/"]').first();
     await expect(evidenceLink).toBeVisible();

@@ -45,6 +45,17 @@ The Settings page shows the live connection status and offers manual
 **Save now / Restore / Clear** controls. Without `DATABASE_URL` the app simply
 reports `not configured` and keeps using localStorage.
 
+The persistence HTTP API is authenticated — set a token to enable it:
+
+```bash
+export PERSISTENCE_API_TOKEN="$(openssl rand -hex 32)"   # ≥ 16 chars, required in production
+```
+
+Clients authenticate with `Authorization: Bearer <token>` or exchange the
+token once at **Settings → Persistence → Unlock** (HttpOnly session cookie).
+In production a missing token *disables* the API (403) instead of leaving it
+open. See [docs/security.md](./docs/security.md).
+
 For local development without an external server, `npm run db:up` starts an
 embedded PostgreSQL (v17) on port `54329` with data directory `.blackbox-pg/`.
 
@@ -57,10 +68,12 @@ embedded PostgreSQL (v17) on port `54329` with data directory `.blackbox-pg/`.
 | `npm start` | Serve the production build |
 | `npm run typecheck` | `prisma generate` + `tsc --noEmit` — strict TypeScript check |
 | `npm run lint` | `eslint .` — flat-config Next.js + React hooks rules |
-| `npm test` | `vitest run` — 8 suites / 66 tests (engine, analysis, recovery, reports, persistence, routes, UI) |
-| `npm run test:e2e` | Prepare browser + `playwright test` — 31 end-to-end tests |
+| `npm test` | `vitest run` — 9 suites / 90 tests (engine, analysis, recovery, reports, persistence, API security, routes, UI) |
+| `npm run test:e2e` | Prepare browser + `playwright test` — 38 end-to-end tests |
 | `npm run db:migrate` | Apply SQL migrations to `$DATABASE_URL` |
 | `npm run db:up` | Start the embedded development PostgreSQL (port 54329) |
+| `npm run db:backup` | Logical JSON backup of all tables (`node scripts/db-backup.mjs [file]`) |
+| `npm run db:restore` | Restore a `db:backup` file into `$DATABASE_URL` |
 | `npm run prisma:generate` | Regenerate the Prisma client into `src/generated/prisma` |
 
 ### Verified results (this checkout)
@@ -70,9 +83,9 @@ Executed in order, all passing:
 ```
 npm run typecheck   → 0 errors
 npm run lint        → 0 errors, 0 warnings
-npm test            → 8 files, 66 tests passed
+npm test            → 9 files, 90 tests passed
 npm run build       → compiled successfully (16 routes)
-npm run test:e2e    → 31 end-to-end tests passed (7 spec files)
+npm run test:e2e    → 38 end-to-end tests passed (8 spec files)
 ```
 
 CI re-runs the same gates on every pull request (`.github/workflows/ci.yml`).
@@ -184,8 +197,8 @@ src/
 └── app/                   # App Router pages (10 modules, detail routes, 4 persistence APIs)
 components/                # shadcn-style UI kit, charts, layout, feature widgets
 prisma/                    # schema.prisma + migrations/20261114090000_init
-scripts/                   # prisma/migrate/db-up/e2e-prepare helpers
-tests/                     # vitest suites (8) + Playwright e2e specs (7)
+scripts/                   # prisma/migrate/db-up/db-backup/db-restore/e2e-prepare helpers
+tests/                     # vitest suites (9) + Playwright e2e specs (8)
 .github/workflows/ci.yml   # PR gate: install, typecheck, lint, unit tests, build + E2E job
 ```
 
@@ -215,9 +228,9 @@ Key design decisions:
 npm install          # exit 0 (postinstall: Prisma client generated)
 npm run typecheck    # exit 0 — no errors
 npm run lint         # exit 0 — 0 errors, 0 warnings
-npm test             # exit 0 — Test Files 8 passed (8) | Tests 66 passed (66)
+npm test             # exit 0 — Test Files 9 passed (9) | Tests 90 passed (90)
 npm run build        # exit 0 — 16 routes compiled
-npm run test:e2e     # exit 0 — 31 passed (Playwright, local Chromium + PostgreSQL)
+npm run test:e2e     # exit 0 — 38 passed (Playwright, local Chromium + PostgreSQL)
 ```
 
 Unit/integration coverage (all executed):
@@ -235,6 +248,11 @@ Unit/integration coverage (all executed):
   decays after recovery.
 - `tests/report.test.ts` — report sections, impact metrics, verification
   (verified/refuted), Markdown/JSON export, snapshot validation.
+- `tests/api-security.test.ts` — persistence API security: auth modes
+  (incl. production deny-by-default), bearer + session-cookie flows,
+  tampered/expired cookies, CSRF/origin rejection, `x-confirm` for destructive
+  clear, 400/413/422/503 error hygiene, rate-limit windows and login
+  throttling.
 - `tests/persistence.test.ts` — **real PostgreSQL**: boots an embedded server,
   applies migrations idempotently, round-trips save/load/clear through Prisma,
   asserts normalised row counts and the monotonic snapshot guard (stale
@@ -321,11 +339,17 @@ Architecture:
   sidebar active-pill layout animation, KPI value swaps, timeline & stagger
   reveals, chart/expandable transitions, button press feedback; everything
   honours `prefers-reduced-motion` (see “Motion & animation” below).
-- **Tests**: 66 unit/integration tests (incl. a real-PostgreSQL suite) and 31
-  Playwright end-to-end tests covering navigation, scenario switching,
-  investigations, recovery/rollback, reports and persistence.
+- **Tests**: 90 unit/integration tests (incl. a real-PostgreSQL suite and a
+  dedicated API-security suite) and 38 Playwright end-to-end tests covering
+  navigation, scenario switching, investigations, recovery/rollback, reports,
+  persistence and the persistence-API security contract.
 - **CI** on every pull request: install → Prisma generate → typecheck → lint →
-  unit tests → production build, plus an E2E job with a PostgreSQL service.
+  unit tests → production build, plus an E2E job with a PostgreSQL service
+  and a test-only `PERSISTENCE_API_TOKEN`.
+- **Security hardening** — authenticated persistence API (bearer token or
+  HttpOnly session cookie), CSRF/origin checks, per-IP rate limits, generic
+  error bodies, security headers (CSP/HSTS/frame denial) and a documented
+  production/backup configuration: [docs/security.md](./docs/security.md).
 
 ### Future work (not implemented)
 
@@ -335,8 +359,8 @@ Architecture:
 - Real-time database streaming (persistence uses REST + periodic snapshots,
   not subscriptions).
 - Visual regression/screenshot testing and performance budgets in CI.
-- Authenticated access to the persistence API (currently open on the app
-  origin, intended for local/trusted deployments).
+- Per-user identities/RBAC for the persistence API (today: one shared
+  token; rotation is the only revocation mechanism).
 
 ---
 
@@ -367,6 +391,10 @@ No paid APIs, no external services, no telemetry.
 - Some Prisma CLI commands require network access in restricted environments;
   `scripts/prisma.mjs` and `scripts/migrate.mjs` cover generate/migrate without
   it.
+- Security model highlights (full detail in [docs/security.md](./docs/security.md)):
+  one shared API token (no per-user accounts), in-memory rate-limit buckets
+  (per process), and a CSP that allows inline scripts/styles required by
+  Next.js and `motion`.
 
 ---
 
@@ -375,12 +403,16 @@ No paid APIs, no external services, no telemetry.
 `.env.example` contains only safe placeholders:
 
 ```
-DATABASE_URL="postgresql://user:password@localhost:5432/blackbox?schema=public"
 NODE_ENV="development"
+DATABASE_URL="postgresql://user:password@localhost:5432/blackbox?schema=public"
+PERSISTENCE_API_TOKEN="change-me-to-a-long-random-secret"
 ```
 
-No secrets are committed. The app runs with an empty environment
-(localStorage-only mode).
+No secrets are committed (`.env*` is git-ignored except `.env.example`).
+The app runs with an empty environment (localStorage-only mode); in
+production the persistence API stays disabled until `DATABASE_URL` **and**
+`PERSISTENCE_API_TOKEN` are injected from a secret manager — see
+[docs/security.md](./docs/security.md).
 
 ---
 

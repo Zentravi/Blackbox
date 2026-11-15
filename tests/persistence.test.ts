@@ -142,6 +142,32 @@ describe("PostgreSQL persistence (Prisma)", () => {
     expect((await loadState())!.tick).toBe(120);
   }, 60_000);
 
+  it("prunes traces/spans beyond the retention window without FK violations", async () => {
+    const { saveState, getStatus, loadState } = await import("@/server/persistence");
+    const { createInitialState } = await import("@/simulation/engine");
+    const { getDb } = await import("@/server/db");
+
+    // Seed telemetry at a low tick, then jump far past TELEMETRY_RETENTION_TICKS
+    // (1200) so the full-save prune path runs. Child spans must be deleted
+    // before their traces — deleting traces first raises P2003 (Span_trace_id_fkey)
+    // and aborts the whole batch.
+    const seeded = createInitialState("db-exhaustion");
+    await saveState(seeded, "full");
+    const db = getDb()!;
+    expect(await db.trace.count()).toBeGreaterThan(0);
+    expect(await db.span.count()).toBeGreaterThan(0);
+
+    const late = { ...seeded, tick: seeded.tick + 5000 };
+    const res = await saveState(late, "full"); // must not throw
+    expect(res.tick).toBe(late.tick);
+
+    expect(await db.trace.count()).toBe(0); // all below cutoff → pruned
+    expect(await db.span.count()).toBe(0); // …with their child spans
+    expect((await getStatus()).tick).toBe(late.tick);
+    // The snapshot payload still restores (normalised tables are a cache).
+    expect((await loadState())!.tick).toBe(late.tick);
+  }, 60_000);
+
   it("clearState removes the snapshot", async () => {
     const { saveState, loadState, clearState } = await import("@/server/persistence");
     const { createInitialState } = await import("@/simulation/engine");

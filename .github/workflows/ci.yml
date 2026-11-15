@@ -53,6 +53,9 @@ jobs:
     env:
       CI: "1"
       DATABASE_URL: postgresql://postgres:blackbox@127.0.0.1:5432/blackbox?schema=public
+      # Test-only credential for the ephemeral CI database (same class as the
+      # POSTGRES_PASSWORD service variable above — never a production secret).
+      PERSISTENCE_API_TOKEN: ci-blackbox-e2e-token-2026
     services:
       postgres:
         image: postgres:17-alpine

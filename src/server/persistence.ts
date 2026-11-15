@@ -42,10 +42,12 @@ export async function getStatus(): Promise<PersistenceStatus> {
       updatedAt: row?.updatedAt.toISOString(),
     };
   } catch (err) {
+    // Raw driver messages can expose hosts/ports — log, don't echo.
+    console.error("[persistence/status] failed", err);
     return {
       configured: true,
       connected: false,
-      error: err instanceof Error ? err.message : "connection failed",
+      error: "connection failed",
     };
   }
 }
@@ -366,22 +368,31 @@ async function syncNormalized(
   const pruneOps = [
     db.metricSample.deleteMany({ where: { tick: { lt: cutoff } } }),
     db.logEntry.deleteMany({ where: { tick: { lt: cutoff } } }),
+    // Child spans must go before their traces (Span_trace_id_fkey) — deleting
+    // traces first aborts the whole batch with a foreign-key violation.
+    db.span.deleteMany({ where: { trace: { tick: { lt: cutoff } } } }),
     db.trace.deleteMany({ where: { tick: { lt: cutoff } } }),
   ];
 
-  await db.$transaction([
-    snapshotOp,
-    ...serviceOps,
-    ...dependencyOps,
-    ...incidentOps,
-    ...timelineOps,
-    ...incidentServiceOps,
-    ...actionOps,
-    ...metricOps,
-    ...logOps,
-    ...traceAndSpanOps,
-    ...pruneOps,
-  ]);
+  await db.$transaction(
+    [
+      snapshotOp,
+      ...serviceOps,
+      ...dependencyOps,
+      ...incidentOps,
+      ...timelineOps,
+      ...incidentServiceOps,
+      ...actionOps,
+      ...metricOps,
+      ...logOps,
+      ...traceAndSpanOps,
+      ...pruneOps,
+    ],
+    // Full saves batch thousands of telemetry upserts; the default 5 s
+    // interactive-transaction timeout aborts on slower hosts right when the
+    // write is about to succeed. 30 s keeps the atomicity guarantee intact.
+    { maxWait: 10_000, timeout: 30_000 },
+  );
 }
 
 /** Load the persisted snapshot; returns null when absent or invalid. */
@@ -402,15 +413,19 @@ export async function loadState(): Promise<SimState | null> {
 export async function clearState(): Promise<void> {
   const db = getDb();
   if (!db) return;
-  await db.$transaction([
-    db.simulationState.deleteMany({ where: { id: WORKSPACE_ID } }),
-    db.span.deleteMany({}),
-    db.trace.deleteMany({}),
-    db.logEntry.deleteMany({}),
-    db.metricSample.deleteMany({}),
-    db.timelineEvent.deleteMany({}),
-    db.incidentService.deleteMany({}),
-    db.incident.deleteMany({ where: { workspaceId: WORKSPACE_ID } }),
-    db.recoveryAction.deleteMany({}),
-  ]);
+  await db.$transaction(
+    [
+      db.simulationState.deleteMany({ where: { id: WORKSPACE_ID } }),
+      db.span.deleteMany({}),
+      db.trace.deleteMany({}),
+      db.logEntry.deleteMany({}),
+      db.metricSample.deleteMany({}),
+      db.timelineEvent.deleteMany({}),
+      db.incidentService.deleteMany({}),
+      db.incident.deleteMany({ where: { workspaceId: WORKSPACE_ID } }),
+      db.recoveryAction.deleteMany({}),
+    ],
+    // Unfiltered telemetry deletes can take a while on a full workspace.
+    { maxWait: 10_000, timeout: 30_000 },
+  );
 }

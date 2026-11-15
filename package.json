@@ -16,7 +16,9 @@
     "postinstall": "node scripts/prisma.mjs generate",
     "prisma:generate": "node scripts/prisma.mjs generate",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:up": "node scripts/db-up.mjs"
+    "db:up": "node scripts/db-up.mjs",
+    "db:backup": "node scripts/db-backup.mjs",
+    "db:restore": "node scripts/db-restore.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",

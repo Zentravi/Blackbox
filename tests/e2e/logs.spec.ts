@@ -49,6 +49,10 @@ test.describe("log explorer", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/Structured fields/i)).toBeVisible();
     await expect(dialog.getByText(/Service/i).first()).toBeVisible();
+    // Clean teardown: ending the test with the portal open reliably stalls
+    // the NEXT browser.newContext() on the local Chromium build.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
   });
 
   test("CSV export downloads the filtered view", async ({ page }) => {

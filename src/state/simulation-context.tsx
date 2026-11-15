@@ -51,6 +51,8 @@ export interface PersistenceValue {
   restoreFromDb: () => Promise<boolean>;
   clearLocal: () => void;
   clearDb: () => Promise<boolean>;
+  /** Re-query /api/persistence/status (used after unlocking the API). */
+  refreshStatus: () => Promise<void>;
 }
 
 interface SimulationContextValue {
@@ -130,6 +132,13 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     remoteSaveChain.current = run.catch(() => ({ ok: false }));
     try {
       const res = await run;
+      if (res.locked) {
+        // API now demands auth — flip to locked so autosaves pause until unlocked.
+        const locked = { configured: false, connected: false, locked: true as const, error: "auth_required" };
+        setRemote(locked);
+        remoteRef.current = locked;
+        return false;
+      }
       const base = remoteRef.current ?? { configured: true, connected: res.ok };
       setRemote({
         ...base,
@@ -171,11 +180,23 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
 
   const clearDb = useCallback(async () => {
     const res = await clearRemoteSnapshot();
+    if (res.locked) {
+      const locked = { configured: false, connected: false, locked: true as const, error: "auth_required" };
+      setRemote(locked);
+      remoteRef.current = locked;
+      return false;
+    }
     if (res.ok) {
       setRemote({ configured: true, connected: true });
       remoteRef.current = { configured: true, connected: true };
     }
     return res.ok;
+  }, []);
+
+  const refreshStatus = useCallback(async () => {
+    const s = await fetchPersistenceStatus();
+    remoteRef.current = s;
+    setRemote(s);
   }, []);
 
   // Hydration-safe restore: the server rendered the deterministic default
@@ -397,8 +418,9 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
       restoreFromDb,
       clearLocal,
       clearDb,
+      refreshStatus,
     }),
-    [localSavedAt, remote, syncing, saveNow, restoreFromDb, clearLocal, clearDb],
+    [localSavedAt, remote, syncing, saveNow, restoreFromDb, clearLocal, clearDb, refreshStatus],
   );
 
   const value = useMemo(

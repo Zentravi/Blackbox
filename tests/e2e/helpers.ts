@@ -1,6 +1,45 @@
-import { expect, type Page } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 const SCENARIO_NAMES = /Database connection exhaustion|API latency degradation|Cascading service failure/i;
+
+/**
+ * Shared persistence API token for e2e: environment variable first (CI sets
+ * it in the workflow), then the local `.env.local` (same file the webServer
+ * reads). Null when neither exists — persistence specs then skip.
+ */
+export function persistenceToken(): string | null {
+  const fromEnv = process.env.PERSISTENCE_API_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const text = fs.readFileSync(path.resolve(process.cwd(), ".env.local"), "utf8");
+    const match = text.match(/^\s*PERSISTENCE_API_TOKEN\s*=\s*(.+?)\s*$/m);
+    if (!match) return null;
+    return match[1].trim().replace(/^["']|["']$/g, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Bearer header for direct API calls (the request fixture has its own jar). */
+export function bearerHeaders(): Record<string, string> {
+  const token = persistenceToken();
+  if (!token) throw new Error("PERSISTENCE_API_TOKEN not available for e2e");
+  return { authorization: `Bearer ${token}` };
+}
+
+/**
+ * Authenticate a browser context / request fixture by exchanging the token
+ * for the HttpOnly session cookie (what the Settings unlock control does).
+ * Must run BEFORE the first page load so /api/persistence calls are allowed.
+ */
+export async function loginPersistence(request: APIRequestContext): Promise<void> {
+  const token = persistenceToken();
+  if (!token) throw new Error("PERSISTENCE_API_TOKEN not available for e2e");
+  const res = await request.post("/api/auth/login", { data: { token } });
+  if (!res.ok()) throw new Error(`persistence login failed: HTTP ${res.status()}`);
+}
 
 /**
  * Wait until the client shell has hydrated (React handlers attached).
@@ -17,7 +56,9 @@ export async function waitForHydration(page: Page): Promise<void> {
   page.on("console", onConsole as never);
   page.on("pageerror", onPageError as never);
   try {
-    await page.locator("html[data-hydrated]").waitFor({ state: "attached", timeout: 25_000 });
+    // 40 s: the sandbox box runs e2e under heavy load (builds, embedded PG)
+    // where hydration can exceed the old 25 s bound; genuine hangs still fail.
+    await page.locator("html[data-hydrated]").waitFor({ state: "attached", timeout: 40_000 });
   } catch {
     const state = await page
       .locator("html")
